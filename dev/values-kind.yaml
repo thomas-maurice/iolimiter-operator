@@ -1,0 +1,4 @@
+image:
+  repository: k8s-blkio-limiter
+  tag: local
+  pullPolicy: Never

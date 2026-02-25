@@ -1,0 +1,17 @@
+image:
+  repository: ghcr.io/thomas-maurice/k8s-blkio-limiter
+  tag: latest
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi
+
+tolerations:
+  - operator: Exists
+
+nodeSelector: {}

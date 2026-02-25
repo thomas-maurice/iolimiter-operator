@@ -1,0 +1,6 @@
+apiVersion: v2
+name: k8s-blkio-limiter
+description: A Kubernetes DaemonSet that applies cgroup v2 io.max limits to containers based on pod annotations
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

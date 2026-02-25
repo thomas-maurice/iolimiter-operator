@@ -1,0 +1,10 @@
+.git
+.github
+charts/
+dev/
+scripts/
+*_test.go
+*.md
+Makefile
+.ideas/
+.claude/

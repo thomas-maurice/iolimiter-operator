@@ -1,0 +1,93 @@
+---
+# Test pod: IO-limited via annotation, prints its own cgroup io.max every 5s.
+#
+# Prerequisites:
+#   The kind node must have a loopback block device mounted at /mnt/test-block-vol.
+#   Run `make setup-loopdev` first (or see setup-loopdev.sh).
+#
+# Usage:
+#   kubectl apply -f test-pod.yaml
+#   kubectl logs -f io-limit-test
+#
+# Expected output:
+#   First few ticks: io.max is empty
+#   After ~5-10s:    io.max shows "7:0 riops=100 wiops=50 rbps=10485760 wbps=5242880"
+#                    (7:0 is the typical major:minor for loop0)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: io-limit-test
+  annotations:
+    blkio-limiter.maurice.fr/limit: "riops=100,wiops=50,rbps=10485760,wbps=5242880"
+    blkio-limiter.maurice.fr/volume-path: "/data"
+spec:
+  containers:
+    - name: test
+      image: busybox:stable
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "=== IO Limit Test Container ==="
+          echo "Annotation: blkio-limiter.maurice.fr/limit=riops=100,wiops=50,rbps=10485760,wbps=5242880"
+          echo "Volume path: /data (backed by loopback block device)"
+          echo ""
+          echo "Waiting for k8s-blkio-limiter DaemonSet to apply limits..."
+          echo ""
+
+          i=0
+          while true; do
+            i=$((i + 1))
+            echo "--- tick $i ($(date -u +%H:%M:%S)) ---"
+
+            # Our cgroup identity
+            echo "cgroup:   $(cat /proc/self/cgroup 2>/dev/null)"
+
+            # io.max — this is what k8s-blkio-limiter writes
+            if [ -f /sys/fs/cgroup/io.max ]; then
+              IOMAX=$(cat /sys/fs/cgroup/io.max)
+              if [ -z "$IOMAX" ]; then
+                echo "io.max:   (empty — no limits yet)"
+              else
+                echo "io.max:   $IOMAX"
+              fi
+            else
+              echo "io.max:   FILE NOT FOUND"
+            fi
+
+            # io.stat — shows actual IO counters
+            if [ -f /sys/fs/cgroup/io.stat ]; then
+              STAT=$(cat /sys/fs/cgroup/io.stat)
+              if [ -n "$STAT" ]; then
+                echo "io.stat:  $STAT"
+              fi
+            fi
+
+            # Confirm /data is on a real block device
+            if mountpoint -q /data 2>/dev/null; then
+              DEV=$(awk '$5=="/data"{print $3}' /proc/self/mountinfo | head -1)
+              echo "/data:    mounted (device $DEV)"
+            else
+              echo "/data:    NOT a mountpoint (hostPath may not exist yet)"
+            fi
+
+            echo ""
+            sleep 5
+          done
+
+      volumeMounts:
+        - name: test-vol
+          mountPath: /data
+
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+
+  volumes:
+    - name: test-vol
+      hostPath:
+        path: /mnt/test-block-vol
+        type: DirectoryOrCreate

@@ -1,0 +1,14 @@
+/k8s-blkio-limiter
+bin/
+dist/
+.claude/
+.ideas/
+CLAUDE.md
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+coverage.out
+*.coverprofile

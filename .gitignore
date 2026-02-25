@@ -4,6 +4,9 @@ dist/
 .claude/
 .ideas/
 CLAUDE.md
+TEST_REPORT.md
+dev/test-longhorn.yaml
+dev/test-sts.yaml
 .vscode/
 .idea/
 *.swp

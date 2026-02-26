@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -13,7 +14,7 @@ type Limiter struct {
 	CgroupRoot string               // "/host-cgroup" in prod, t.TempDir() in tests
 	ProcRoot   string               // "/host-proc" in prod, t.TempDir() in tests
 	NodeName   string               // node name from Downward API
-	Client     kubernetes.Interface // Interface, not *Clientset — enables fake.NewSimpleClientset()
+	Client     kubernetes.Interface // Interface, not *Clientset - enables fake.NewSimpleClientset()
 	applied    map[string]appliedRule
 	log        *slog.Logger
 }
@@ -35,9 +36,22 @@ func (l *Limiter) Run(ctx context.Context) {
 	l.recoverOrphanedRules()
 
 	for {
-		if err := l.reconcile(ctx); err != nil {
+		timer := prometheus.NewTimer(reconcileDuration)
+		err := l.reconcile(ctx)
+		timer.ObserveDuration()
+
+		if err != nil {
+			reconcileErrors.Inc()
 			l.log.Error("reconcile error", "err", err)
 		}
+
+		// Update gauges from the applied cache.
+		limitedContainers.Set(float64(len(l.applied)))
+		volCount := 0
+		for _, rule := range l.applied {
+			volCount += len(rule.volumes)
+		}
+		limitedVolumes.Set(float64(volCount))
 
 		select {
 		case <-ctx.Done():

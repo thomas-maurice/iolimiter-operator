@@ -179,7 +179,7 @@ func TestReconcile_SkipsMissingAnnotation(t *testing.T) {
 }
 
 func TestReconcile_SkipsOrphanedConfig(t *testing.T) {
-	// Config without matching path — should warn and skip.
+	// Config without matching path - should warn and skip.
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
 		AnnotationConfigPrefix + "data": "riops=100",
 		// no path.data
@@ -201,7 +201,7 @@ func TestReconcile_SkipsOrphanedConfig(t *testing.T) {
 }
 
 func TestReconcile_SkipsOrphanedPath(t *testing.T) {
-	// Path without matching config — should warn and skip.
+	// Path without matching config - should warn and skip.
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
 		AnnotationPathPrefix + "data": "/data",
 		// no config.data

@@ -43,12 +43,13 @@ func (l *Limiter) reconcile(ctx context.Context) error {
 		for name, limitSpec := range configs {
 			volumePath, hasPath := paths[name]
 			if !hasPath || volumePath == "" {
-				l.log.Warn("config annotation has no matching path annotation — skipping",
+				orphanedAnnotations.WithLabelValues("config").Inc()
+				l.log.Warn("config annotation has no matching path annotation - skipping",
 					"pod", pod.Name, "ns", pod.Namespace, "name", name)
 				continue
 			}
 			if volumePath == "/" {
-				l.log.Debug("skipping volume with path set to / — refusing to throttle the root filesystem",
+				l.log.Debug("skipping volume with path set to / - refusing to throttle the root filesystem",
 					"pod", pod.Name, "ns", pod.Namespace, "name", name)
 				continue
 			}
@@ -58,7 +59,8 @@ func (l *Limiter) reconcile(ctx context.Context) error {
 		// Warn about orphaned path annotations (path without config).
 		for name := range paths {
 			if _, hasConfig := configs[name]; !hasConfig {
-				l.log.Warn("path annotation has no matching config annotation — skipping",
+				orphanedAnnotations.WithLabelValues("path").Inc()
+				l.log.Warn("path annotation has no matching config annotation - skipping",
 					"pod", pod.Name, "ns", pod.Namespace, "name", name)
 			}
 		}
@@ -77,6 +79,7 @@ func (l *Limiter) reconcile(ctx context.Context) error {
 
 			if prev, exists := l.applied[containerID]; exists {
 				if volumesEqual(prev.volumes, volumes) {
+					cacheHits.Inc()
 					continue
 				}
 				l.log.Info("annotations changed, re-applying",

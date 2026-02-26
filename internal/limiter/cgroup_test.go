@@ -121,7 +121,7 @@ func TestFindContainerCgroup(t *testing.T) {
 
 	t.Run("prunes system.slice", func(t *testing.T) {
 		root := t.TempDir()
-		// Put container under system.slice — should NOT be found
+		// Put container under system.slice - should NOT be found
 		cgroupDir := filepath.Join(root, "system.slice", "cri-containerd-"+containerID+".scope")
 		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
 			t.Fatal(err)

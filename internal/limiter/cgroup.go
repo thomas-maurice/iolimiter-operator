@@ -140,6 +140,7 @@ func (l *Limiter) recoverOrphanedRules() {
 			volumes:    recovered,
 			cgroupPath: path,
 		}
+		recoveredRules.Inc()
 		found++
 		return nil
 	})

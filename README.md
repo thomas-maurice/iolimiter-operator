@@ -37,11 +37,11 @@ Each volume to limit needs a pair of annotations sharing the same `<name>` suffi
 ```yaml
 metadata:
   annotations:
-    # Volume "data" — limit to 5 MB/s write, 10 MB/s read, 100/50 IOPS
+    # Volume "data" - limit to 5 MB/s write, 10 MB/s read, 100/50 IOPS
     blkio-limiter.maurice.fr/config.data: "riops=100,wiops=50,rbps=10485760,wbps=5242880"
     blkio-limiter.maurice.fr/path.data: "/data"
 
-    # Volume "logs" — limit to 1 MB/s write
+    # Volume "logs" - limit to 1 MB/s write
     blkio-limiter.maurice.fr/config.logs: "wbps=1048576"
     blkio-limiter.maurice.fr/path.logs: "/var/log/app"
 ```
@@ -72,7 +72,7 @@ Kind nodes use overlay filesystems (major 0) which `io.max` cannot throttle. `sc
 helm upgrade --install k8s-blkio-limiter charts/k8s-blkio-limiter \
   -n kube-system -f dev/values-kind.yaml
 
-# Install (production — defaults to GHCR image)
+# Install (production - defaults to GHCR image)
 helm upgrade --install k8s-blkio-limiter charts/k8s-blkio-limiter \
   -n kube-system --set image.tag=v0.1.0
 
@@ -115,3 +115,7 @@ dev/                              # Kind cluster config, test pod, values overla
 
 - cgroups v2 on the host (default on all modern distros and managed k8s)
 - systemd cgroup driver (default for containerd)
+
+## Credits
+
+Built with the help of [Claude Code](https://claude.ai/claude-code).

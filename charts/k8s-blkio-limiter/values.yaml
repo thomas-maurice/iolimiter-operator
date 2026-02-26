@@ -11,6 +11,8 @@ resources:
     cpu: 100m
     memory: 64Mi
 
+metricsPort: 8080
+
 tolerations:
   - operator: Exists
 

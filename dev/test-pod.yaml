@@ -42,11 +42,11 @@ spec:
             # Our cgroup identity
             echo "cgroup:   $(cat /proc/self/cgroup 2>/dev/null)"
 
-            # io.max — this is what k8s-blkio-limiter writes
+            # io.max - this is what k8s-blkio-limiter writes
             if [ -f /sys/fs/cgroup/io.max ]; then
               IOMAX=$(cat /sys/fs/cgroup/io.max)
               if [ -z "$IOMAX" ]; then
-                echo "io.max:   (empty — no limits yet)"
+                echo "io.max:   (empty - no limits yet)"
               else
                 echo "io.max:   $IOMAX"
               fi
@@ -54,7 +54,7 @@ spec:
               echo "io.max:   FILE NOT FOUND"
             fi
 
-            # io.stat — shows actual IO counters
+            # io.stat - shows actual IO counters
             if [ -f /sys/fs/cgroup/io.stat ]; then
               STAT=$(cat /sys/fs/cgroup/io.stat)
               if [ -n "$STAT" ]; then

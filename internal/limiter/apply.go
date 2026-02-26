@@ -30,7 +30,8 @@ func (l *Limiter) applyIOLimits(log *slog.Logger, containerID string, volumes ma
 	for name, vol := range volumes {
 		majMin, err := l.findBlockDeviceForPath(log, pid, vol.volumePath)
 		if err != nil {
-			log.Info("no block device found for volume — skipping",
+			deviceResolutionFailures.Inc()
+			log.Info("no block device found for volume - skipping",
 				"name", name, "volumePath", vol.volumePath, "detail", err.Error())
 			continue
 		}
@@ -58,9 +59,11 @@ func (l *Limiter) applyIOLimits(log *slog.Logger, containerID string, volumes ma
 
 	payload := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(ioMaxPath, []byte(payload), 0644); err != nil {
+		applyTotal.WithLabelValues("error").Inc()
 		return nil, fmt.Errorf("writing io.max: %w", err)
 	}
 
+	applyTotal.WithLabelValues("success").Inc()
 	content, _ := os.ReadFile(ioMaxPath)
 	log.Info("io.max verified", "content", strings.TrimSpace(string(content)))
 	return &appliedRule{
@@ -116,6 +119,7 @@ func (l *Limiter) resetIOLimits(containerID string, rule appliedRule) {
 		}
 	}
 
+	resetTotal.Inc()
 	for _, majMin := range majMins {
 		resetRule := majMin + " riops=max wiops=max rbps=max wbps=max"
 		log.Info("resetting io.max (annotation removed or pod gone)",

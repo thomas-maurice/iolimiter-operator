@@ -7,9 +7,11 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/thomas-maurice/k8s-blkio-limiter/internal/limiter"
 
 	"k8s.io/client-go/kubernetes"
@@ -48,6 +50,20 @@ func main() {
 		logger.Error("failed to create kubernetes client", "err", err)
 		os.Exit(1)
 	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+	go func() {
+		logger.Info("starting metrics server", "addr", ":8080")
+		if err := http.ListenAndServe(":8080", mux); err != nil {
+			logger.Error("metrics server failed", "err", err)
+			os.Exit(1)
+		}
+	}()
 
 	l := limiter.New(hostCgroupRoot, hostProcRoot, nodeName, clientset, logger)
 	l.Run(context.Background())

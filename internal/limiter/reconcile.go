@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -21,20 +22,48 @@ func (l *Limiter) reconcile(ctx context.Context) error {
 	wantLimited := make(map[string]bool)
 
 	for _, pod := range pods.Items {
-		limit, ok := pod.Annotations[AnnotationLimit]
-		if !ok {
+		// Collect config.<name> and path.<name> annotations.
+		configs := make(map[string]string) // name -> limit spec
+		paths := make(map[string]string)   // name -> volume path
+
+		for key, val := range pod.Annotations {
+			if name, ok := strings.CutPrefix(key, AnnotationConfigPrefix); ok {
+				configs[name] = val
+			} else if name, ok := strings.CutPrefix(key, AnnotationPathPrefix); ok {
+				paths[name] = val
+			}
+		}
+
+		if len(configs) == 0 && len(paths) == 0 {
 			continue
 		}
 
-		volumePath, hasVolumePath := pod.Annotations[AnnotationVolumePath]
-		if !hasVolumePath || volumePath == "" {
-			l.log.Warn("pod has blkio-limiter.maurice.fr/limit but no blkio-limiter.maurice.fr/volume-path — skipping (volume-path is required to avoid throttling the wrong device)",
-				"pod", pod.Name, "ns", pod.Namespace)
-			continue
+		// Build the set of valid volume rules (both config and path present).
+		volumes := make(map[string]volumeRule)
+		for name, limitSpec := range configs {
+			volumePath, hasPath := paths[name]
+			if !hasPath || volumePath == "" {
+				l.log.Warn("config annotation has no matching path annotation — skipping",
+					"pod", pod.Name, "ns", pod.Namespace, "name", name)
+				continue
+			}
+			if volumePath == "/" {
+				l.log.Debug("skipping volume with path set to / — refusing to throttle the root filesystem",
+					"pod", pod.Name, "ns", pod.Namespace, "name", name)
+				continue
+			}
+			volumes[name] = volumeRule{limit: limitSpec, volumePath: volumePath}
 		}
-		if volumePath == "/" {
-			l.log.Debug("skipping pod with volume-path set to / — refusing to throttle the root filesystem (it may be overlay or the node's root disk, neither of which should be limited)",
-				"pod", pod.Name, "ns", pod.Namespace)
+
+		// Warn about orphaned path annotations (path without config).
+		for name := range paths {
+			if _, hasConfig := configs[name]; !hasConfig {
+				l.log.Warn("path annotation has no matching config annotation — skipping",
+					"pod", pod.Name, "ns", pod.Namespace, "name", name)
+			}
+		}
+
+		if len(volumes) == 0 {
 			continue
 		}
 
@@ -47,27 +76,25 @@ func (l *Limiter) reconcile(ctx context.Context) error {
 			wantLimited[containerID] = true
 
 			if prev, exists := l.applied[containerID]; exists {
-				if prev.limit == limit && prev.volumePath == volumePath {
+				if volumesEqual(prev.volumes, volumes) {
 					continue
 				}
-				l.log.Info("annotation changed, re-applying",
-					"pod", pod.Name, "ns", pod.Namespace, "container", cs.Name,
-					"old_limit", prev.limit, "new_limit", limit)
+				l.log.Info("annotations changed, re-applying",
+					"pod", pod.Name, "ns", pod.Namespace, "container", cs.Name)
 			}
 
 			log := slog.With(
 				"pod", pod.Name, "ns", pod.Namespace,
 				"container", cs.Name, "containerID", containerID[:12],
-				"limit", limit, "volumePath", volumePath,
 			)
 
-			if result, err := l.applyIOLimit(log, containerID, limit, volumePath); err != nil {
-				log.Error("failed to apply IO limit", "err", err)
+			if result, err := l.applyIOLimits(log, containerID, volumes); err != nil {
+				log.Error("failed to apply IO limits", "err", err)
 				continue
 			} else if result != nil {
 				l.applied[containerID] = *result
 			}
-			// If result==nil && err==nil, the volume has no block device yet.
+			// If result==nil && err==nil, no volumes had block devices yet.
 			// We don't cache it so we retry on the next reconcile loop.
 		}
 	}
@@ -78,9 +105,26 @@ func (l *Limiter) reconcile(ctx context.Context) error {
 		if wantLimited[id] {
 			continue
 		}
-		l.resetIOLimit(id, rule)
+		l.resetIOLimits(id, rule)
 		delete(l.applied, id)
 	}
 
 	return nil
+}
+
+// volumesEqual returns true if two volume maps have the same names, limits, and paths.
+func volumesEqual(a, b map[string]volumeRule) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for name, va := range a {
+		vb, ok := b[name]
+		if !ok {
+			return false
+		}
+		if va.limit != vb.limit || va.volumePath != vb.volumePath {
+			return false
+		}
+	}
+	return true
 }

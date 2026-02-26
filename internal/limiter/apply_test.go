@@ -51,7 +51,7 @@ func TestStripContainerIDPrefix(t *testing.T) {
 	}
 }
 
-func TestApplyIOLimit(t *testing.T) {
+func TestApplyIOLimits(t *testing.T) {
 	containerID := "abc123def456789012345678901234567890123456789012345678901234abcd"
 
 	mountinfo := `22 1 0:21 / /proc rw - proc proc rw
@@ -59,7 +59,7 @@ func TestApplyIOLimit(t *testing.T) {
 35 30 7:0 / /data rw - ext4 /dev/loop0 rw
 `
 
-	t.Run("applies limit successfully", func(t *testing.T) {
+	t.Run("applies single volume limit", func(t *testing.T) {
 		root := t.TempDir()
 		procRoot := t.TempDir()
 
@@ -69,18 +69,13 @@ func TestApplyIOLimit(t *testing.T) {
 		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
 			t.Fatal(err)
 		}
-
-		// Create cgroup.procs
 		if err := os.WriteFile(filepath.Join(cgroupDir, "cgroup.procs"), []byte("4567\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
-
-		// Create io.max (empty initially)
 		if err := os.WriteFile(filepath.Join(cgroupDir, "io.max"), []byte(""), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		// Create mountinfo
 		pidDir := filepath.Join(procRoot, "4567")
 		if err := os.MkdirAll(pidDir, 0755); err != nil {
 			t.Fatal(err)
@@ -92,21 +87,27 @@ func TestApplyIOLimit(t *testing.T) {
 		l := New(root, procRoot, "test-node", nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 		log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-		result, err := l.applyIOLimit(log, containerID, "riops=100,wiops=50", "/data")
+		volumes := map[string]volumeRule{
+			"data": {limit: "riops=100,wiops=50", volumePath: "/data"},
+		}
+		result, err := l.applyIOLimits(log, containerID, volumes)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
-		if result.limit != "riops=100,wiops=50" {
-			t.Errorf("limit = %q, want %q", result.limit, "riops=100,wiops=50")
-		}
-		if result.majMin != "7:0" {
-			t.Errorf("majMin = %q, want %q", result.majMin, "7:0")
+		if vol, ok := result.volumes["data"]; !ok {
+			t.Error("expected 'data' in result volumes")
+		} else {
+			if vol.limit != "riops=100,wiops=50" {
+				t.Errorf("limit = %q, want %q", vol.limit, "riops=100,wiops=50")
+			}
+			if vol.majMin != "7:0" {
+				t.Errorf("majMin = %q, want %q", vol.majMin, "7:0")
+			}
 		}
 
-		// Verify io.max was written
 		content, err := os.ReadFile(filepath.Join(cgroupDir, "io.max"))
 		if err != nil {
 			t.Fatal(err)
@@ -117,11 +118,70 @@ func TestApplyIOLimit(t *testing.T) {
 		}
 	})
 
+	t.Run("applies multiple volume limits", func(t *testing.T) {
+		root := t.TempDir()
+		procRoot := t.TempDir()
+
+		cgroupDir := filepath.Join(root, "kubepods.slice", "kubepods-burstable.slice",
+			"kubepods-burstable-pod1234.slice", "cri-containerd-"+containerID+".scope")
+		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cgroupDir, "cgroup.procs"), []byte("4567\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cgroupDir, "io.max"), []byte(""), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		multiMountinfo := `22 1 0:21 / /proc rw - proc proc rw
+30 1 259:1 / / rw - ext4 /dev/sda1 rw
+35 30 7:0 / /data rw - ext4 /dev/loop0 rw
+36 30 8:0 / /logs rw - ext4 /dev/loop1 rw
+`
+		pidDir := filepath.Join(procRoot, "4567")
+		if err := os.MkdirAll(pidDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(pidDir, "mountinfo"), []byte(multiMountinfo), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		l := New(root, procRoot, "test-node", nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+		volumes := map[string]volumeRule{
+			"data": {limit: "riops=100,wiops=50", volumePath: "/data"},
+			"logs": {limit: "wbps=1048576", volumePath: "/logs"},
+		}
+		result, err := l.applyIOLimits(log, containerID, volumes)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result == nil {
+			t.Fatal("expected non-nil result")
+		}
+		if len(result.volumes) != 2 {
+			t.Errorf("expected 2 volumes, got %d", len(result.volumes))
+		}
+
+		content, err := os.ReadFile(filepath.Join(cgroupDir, "io.max"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.TrimSpace(string(content))
+		if !strings.Contains(got, "7:0 riops=100 wiops=50") {
+			t.Errorf("io.max missing data rule, got: %q", got)
+		}
+		if !strings.Contains(got, "8:0 wbps=1048576") {
+			t.Errorf("io.max missing logs rule, got: %q", got)
+		}
+	})
+
 	t.Run("returns nil when no block device", func(t *testing.T) {
 		root := t.TempDir()
 		procRoot := t.TempDir()
 
-		// Create cgroup tree
 		cgroupDir := filepath.Join(root, "kubepods.slice", "kubepods-burstable.slice",
 			"kubepods-burstable-pod1234.slice", "cri-containerd-"+containerID+".scope")
 		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
@@ -131,7 +191,6 @@ func TestApplyIOLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Create mountinfo with only pseudo-fs
 		pseudoOnly := "22 1 0:21 / /proc rw - proc proc rw\n40 1 0:40 / / rw - overlay overlay rw\n"
 		pidDir := filepath.Join(procRoot, "4567")
 		if err := os.MkdirAll(pidDir, 0755); err != nil {
@@ -144,7 +203,10 @@ func TestApplyIOLimit(t *testing.T) {
 		l := New(root, procRoot, "test-node", nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 		log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-		result, err := l.applyIOLimit(log, containerID, "riops=100", "/data")
+		volumes := map[string]volumeRule{
+			"data": {limit: "riops=100", volumePath: "/data"},
+		}
+		result, err := l.applyIOLimits(log, containerID, volumes)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -154,10 +216,10 @@ func TestApplyIOLimit(t *testing.T) {
 	})
 }
 
-func TestResetIOLimit(t *testing.T) {
+func TestResetIOLimits(t *testing.T) {
 	containerID := "abc123def456789012345678901234567890123456789012345678901234abcd"
 
-	t.Run("resets with stored majMin", func(t *testing.T) {
+	t.Run("resets with stored volumes", func(t *testing.T) {
 		root := t.TempDir()
 		cgroupDir := filepath.Join(root, "cgroup-dir")
 		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
@@ -170,9 +232,11 @@ func TestResetIOLimit(t *testing.T) {
 		l := New(root, "", "test-node", nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 		rule := appliedRule{
 			cgroupPath: cgroupDir,
-			majMin:     "7:0",
+			volumes: map[string]volumeRule{
+				"data": {majMin: "7:0"},
+			},
 		}
-		l.resetIOLimit(containerID, rule)
+		l.resetIOLimits(containerID, rule)
 
 		content, err := os.ReadFile(filepath.Join(cgroupDir, "io.max"))
 		if err != nil {
@@ -184,7 +248,7 @@ func TestResetIOLimit(t *testing.T) {
 		}
 	})
 
-	t.Run("reads majMin from io.max when not stored", func(t *testing.T) {
+	t.Run("reads majMin from io.max when volumes have no majMin", func(t *testing.T) {
 		root := t.TempDir()
 		cgroupDir := filepath.Join(root, "cgroup-dir")
 		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
@@ -197,9 +261,9 @@ func TestResetIOLimit(t *testing.T) {
 		l := New(root, "", "test-node", nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 		rule := appliedRule{
 			cgroupPath: cgroupDir,
-			majMin:     "", // not stored
+			volumes:    map[string]volumeRule{},
 		}
-		l.resetIOLimit(containerID, rule)
+		l.resetIOLimits(containerID, rule)
 
 		content, err := os.ReadFile(filepath.Join(cgroupDir, "io.max"))
 		if err != nil {
@@ -216,9 +280,11 @@ func TestResetIOLimit(t *testing.T) {
 		l := New(root, "", "test-node", nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 		rule := appliedRule{
 			cgroupPath: filepath.Join(root, "nonexistent"),
-			majMin:     "7:0",
+			volumes: map[string]volumeRule{
+				"data": {majMin: "7:0"},
+			},
 		}
 		// Should not panic or error
-		l.resetIOLimit(containerID, rule)
+		l.resetIOLimits(containerID, rule)
 	})
 }

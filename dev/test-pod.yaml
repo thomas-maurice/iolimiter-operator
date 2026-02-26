@@ -18,8 +18,8 @@ kind: Pod
 metadata:
   name: io-limit-test
   annotations:
-    blkio-limiter.maurice.fr/limit: "riops=100,wiops=50,rbps=10485760,wbps=5242880"
-    blkio-limiter.maurice.fr/volume-path: "/data"
+    blkio-limiter.maurice.fr/config.data: "riops=100,wiops=50,rbps=10485760,wbps=5242880"
+    blkio-limiter.maurice.fr/path.data: "/data"
 spec:
   containers:
     - name: test
@@ -28,7 +28,7 @@ spec:
       args:
         - |
           echo "=== IO Limit Test Container ==="
-          echo "Annotation: blkio-limiter.maurice.fr/limit=riops=100,wiops=50,rbps=10485760,wbps=5242880"
+          echo "Annotation: blkio-limiter.maurice.fr/config.data=riops=100,wiops=50,rbps=10485760,wbps=5242880"
           echo "Volume path: /data (backed by loopback block device)"
           echo ""
           echo "Waiting for k8s-blkio-limiter DaemonSet to apply limits..."

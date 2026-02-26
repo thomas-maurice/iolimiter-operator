@@ -25,22 +25,28 @@ make test            # deploy annotated test pod and tail its logs
 ## How it works
 
 1. DaemonSet lists pods on its node via the Kubernetes API.
-2. Finds pods with the `blkio-limiter.maurice.fr/limit` annotation.
-3. Resolves container ID -> cgroup path -> PID -> `/proc/<pid>/mountinfo` -> block device `major:minor`.
-4. Writes the `io.max` rule to the container's cgroup.
+2. Finds pods with `blkio-limiter.maurice.fr/config.<name>` and `blkio-limiter.maurice.fr/path.<name>` annotation pairs.
+3. For each named volume pair, resolves container ID -> cgroup path -> PID -> `/proc/<pid>/mountinfo` -> block device `major:minor`.
+4. Writes all `io.max` rules to the container's cgroup.
 5. Polls every 5s. Resets limits when annotations are removed. Recovers orphaned rules on startup.
 
 ## Annotations
 
+Each volume to limit needs a pair of annotations sharing the same `<name>` suffix:
+
 ```yaml
 metadata:
   annotations:
-    # Required: comma-separated io.max parameters
-    blkio-limiter.maurice.fr/limit: "riops=100,wiops=50,rbps=10485760,wbps=5242880"
+    # Volume "data" — limit to 5 MB/s write, 10 MB/s read, 100/50 IOPS
+    blkio-limiter.maurice.fr/config.data: "riops=100,wiops=50,rbps=10485760,wbps=5242880"
+    blkio-limiter.maurice.fr/path.data: "/data"
 
-    # Required: mount path inside the container whose backing device to limit.
-    blkio-limiter.maurice.fr/volume-path: "/data"
+    # Volume "logs" — limit to 1 MB/s write
+    blkio-limiter.maurice.fr/config.logs: "wbps=1048576"
+    blkio-limiter.maurice.fr/path.logs: "/var/log/app"
 ```
+
+If only one of `config.<name>` / `path.<name>` is present (orphaned), it is ignored and a warning is logged.
 
 | Parameter | Meaning                    | Unit          |
 |-----------|----------------------------|---------------|

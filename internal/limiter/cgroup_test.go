@@ -9,9 +9,9 @@ import (
 
 func TestContainerIDFromCgroupDir(t *testing.T) {
 	tests := []struct {
-		name string
+		name  string
 		input string
-		want string
+		want  string
 	}{
 		{
 			name:  "valid containerd scope",
@@ -200,14 +200,20 @@ func TestRecoverOrphanedRules(t *testing.T) {
 		if !ok {
 			t.Fatal("expected container to be in applied map")
 		}
-		if rule.limit != "__recovered__" {
-			t.Errorf("expected sentinel limit, got %q", rule.limit)
-		}
 		if rule.cgroupPath != cgroupDir {
 			t.Errorf("expected cgroupPath %q, got %q", cgroupDir, rule.cgroupPath)
 		}
-		if rule.majMin != "7:0" {
-			t.Errorf("expected majMin %q, got %q", "7:0", rule.majMin)
+		// Should have a synthetic volume entry for the recovered device.
+		if len(rule.volumes) != 1 {
+			t.Fatalf("expected 1 recovered volume, got %d", len(rule.volumes))
+		}
+		for _, vol := range rule.volumes {
+			if vol.majMin != "7:0" {
+				t.Errorf("expected majMin %q, got %q", "7:0", vol.majMin)
+			}
+			if vol.limit != "__recovered__" {
+				t.Errorf("expected sentinel limit, got %q", vol.limit)
+			}
 		}
 	})
 

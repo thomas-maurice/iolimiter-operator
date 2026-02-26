@@ -127,10 +127,18 @@ func (l *Limiter) recoverOrphanedRules() {
 			"devices", majMins,
 			"rules", strings.TrimSpace(string(content)))
 
+		// Create a synthetic volume entry per recovered device so resetIOLimits
+		// can clear each one.
+		recovered := make(map[string]volumeRule)
+		for i, mm := range majMins {
+			recovered[fmt.Sprintf("__recovered_%d__", i)] = volumeRule{
+				limit:  "__recovered__",
+				majMin: mm,
+			}
+		}
 		l.applied[containerID] = appliedRule{
-			limit:      "__recovered__", // sentinel — will never match a real annotation
+			volumes:    recovered,
 			cgroupPath: path,
-			majMin:     strings.Join(majMins, ","),
 		}
 		found++
 		return nil

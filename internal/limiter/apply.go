@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// applyIOLimit resolves a container's cgroup and block device, then writes an
-// io.max rule. Returns nil, nil if the volume has no block device yet (retry later).
-func (l *Limiter) applyIOLimit(log *slog.Logger, containerID, limitSpec, volumePath string) (*appliedRule, error) {
+// applyIOLimits resolves a container's cgroup and block devices for all volumes,
+// then writes io.max rules. Returns nil, nil if no volumes have block devices yet.
+func (l *Limiter) applyIOLimits(log *slog.Logger, containerID string, volumes map[string]volumeRule) (*appliedRule, error) {
 	// Step 1: find the container's cgroup directory on the host
 	cgroupPath, err := l.findContainerCgroup(containerID)
 	if err != nil {
@@ -25,38 +25,53 @@ func (l *Limiter) applyIOLimit(log *slog.Logger, containerID, limitSpec, volumeP
 	}
 	log.Debug("found PID", "pid", pid)
 
-	// Step 3: resolve block device
-	majMin, err := l.findBlockDeviceForPath(log, pid, volumePath)
-	if err != nil {
-		log.Info("no block device found for volume path — skipping (this is expected for overlay/tmpfs mounts, e.g. in kind without a loop device)",
-			"volumePath", volumePath, "detail", err.Error())
-		return nil, nil // not an error, just nothing to do yet
+	// Step 3: resolve block devices for each volume
+	resolved := make(map[string]volumeRule)
+	for name, vol := range volumes {
+		majMin, err := l.findBlockDeviceForPath(log, pid, vol.volumePath)
+		if err != nil {
+			log.Info("no block device found for volume — skipping",
+				"name", name, "volumePath", vol.volumePath, "detail", err.Error())
+			continue
+		}
+		log.Debug("resolved block device", "name", name, "volumePath", vol.volumePath, "majMin", majMin)
+		resolved[name] = volumeRule{
+			limit:      vol.limit,
+			volumePath: vol.volumePath,
+			majMin:     majMin,
+		}
 	}
-	log.Debug("resolved block device", "majMin", majMin)
 
-	// Step 4: write io.max
+	if len(resolved) == 0 {
+		return nil, nil // no volumes have block devices yet
+	}
+
+	// Step 4: write all rules to io.max in a single write
 	ioMaxPath := filepath.Join(cgroupPath, "io.max")
-	parts := strings.Split(limitSpec, ",")
-	rule := majMin + " " + strings.Join(parts, " ")
+	var lines []string
+	for name, vol := range resolved {
+		parts := strings.Split(vol.limit, ",")
+		rule := vol.majMin + " " + strings.Join(parts, " ")
+		lines = append(lines, rule)
+		log.Info("writing io.max", "name", name, "path", ioMaxPath, "rule", rule)
+	}
 
-	log.Info("writing io.max", "path", ioMaxPath, "rule", rule)
-	if err := os.WriteFile(ioMaxPath, []byte(rule+"\n"), 0644); err != nil {
+	payload := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(ioMaxPath, []byte(payload), 0644); err != nil {
 		return nil, fmt.Errorf("writing io.max: %w", err)
 	}
 
 	content, _ := os.ReadFile(ioMaxPath)
 	log.Info("io.max verified", "content", strings.TrimSpace(string(content)))
 	return &appliedRule{
-		limit:      limitSpec,
-		volumePath: volumePath,
+		volumes:    resolved,
 		cgroupPath: cgroupPath,
-		majMin:     majMin,
 	}, nil
 }
 
-// resetIOLimit writes "max" values to a container's io.max to clear the limit.
+// resetIOLimits writes "max" values to a container's io.max to clear all limits.
 // If the cgroup is already gone (container deleted), this is a no-op.
-func (l *Limiter) resetIOLimit(containerID string, rule appliedRule) {
+func (l *Limiter) resetIOLimits(containerID string, rule appliedRule) {
 	shortID := containerID[:12]
 	log := l.log.With("containerID", shortID)
 
@@ -79,9 +94,18 @@ func (l *Limiter) resetIOLimit(containerID string, rule appliedRule) {
 
 	// Collect all device majMins that need resetting.
 	var majMins []string
-	if rule.majMin != "" {
-		majMins = strings.Split(rule.majMin, ",")
-	} else {
+	if len(rule.volumes) > 0 {
+		seen := make(map[string]bool)
+		for _, vol := range rule.volumes {
+			if vol.majMin != "" && !seen[vol.majMin] {
+				majMins = append(majMins, vol.majMin)
+				seen[vol.majMin] = true
+			}
+		}
+	}
+
+	// Fallback: read io.max to find active rules.
+	if len(majMins) == 0 {
 		content, err := os.ReadFile(ioMaxPath)
 		if err != nil {
 			log.Debug("could not read io.max for reset", "err", err)

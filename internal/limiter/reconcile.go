@@ -18,51 +18,29 @@ func (l *Limiter) reconcile(ctx context.Context) error {
 		return fmt.Errorf("listing pods: %w", err)
 	}
 
-	// wantLimited tracks container IDs that SHOULD have io.max rules right now.
 	wantLimited := make(map[string]bool)
 
 	for _, pod := range pods.Items {
-		// Collect config.<name> and path.<name> annotations.
-		configs := make(map[string]string) // name -> limit spec
-		paths := make(map[string]string)   // name -> volume path
+		volumes := make(map[string]volumeRule)
 
 		for key, val := range pod.Annotations {
-			if name, ok := strings.CutPrefix(key, AnnotationConfigPrefix); ok {
-				configs[name] = val
-			} else if name, ok := strings.CutPrefix(key, AnnotationPathPrefix); ok {
-				paths[name] = val
+			name, ok := strings.CutPrefix(key, AnnotationPrefix)
+			if !ok {
+				continue
 			}
-		}
 
-		if len(configs) == 0 && len(paths) == 0 {
-			continue
-		}
-
-		// Build the set of valid volume rules (both config and path present).
-		volumes := make(map[string]volumeRule)
-		for name, limitSpec := range configs {
-			volumePath, hasPath := paths[name]
-			if !hasPath || volumePath == "" {
-				orphanedAnnotations.WithLabelValues("config").Inc()
-				l.log.Warn("config annotation has no matching path annotation - skipping",
-					"pod", pod.Name, "ns", pod.Namespace, "name", name)
+			volumePath, limitSpec, err := parseAnnotation(val)
+			if err != nil {
+				l.log.Warn("invalid annotation value",
+					"pod", pod.Name, "ns", pod.Namespace, "name", name, "err", err)
 				continue
 			}
 			if volumePath == "/" {
-				l.log.Debug("skipping volume with path set to / - refusing to throttle the root filesystem",
+				l.log.Debug("skipping volume with path=/ - refusing to throttle root filesystem",
 					"pod", pod.Name, "ns", pod.Namespace, "name", name)
 				continue
 			}
 			volumes[name] = volumeRule{limit: limitSpec, volumePath: volumePath}
-		}
-
-		// Warn about orphaned path annotations (path without config).
-		for name := range paths {
-			if _, hasConfig := configs[name]; !hasConfig {
-				orphanedAnnotations.WithLabelValues("path").Inc()
-				l.log.Warn("path annotation has no matching config annotation - skipping",
-					"pod", pod.Name, "ns", pod.Namespace, "name", name)
-			}
 		}
 
 		if len(volumes) == 0 {
@@ -79,7 +57,6 @@ func (l *Limiter) reconcile(ctx context.Context) error {
 
 			if prev, exists := l.applied[containerID]; exists {
 				if volumesEqual(prev.volumes, volumes) {
-					cacheHits.Inc()
 					continue
 				}
 				l.log.Info("annotations changed, re-applying",
@@ -97,13 +74,9 @@ func (l *Limiter) reconcile(ctx context.Context) error {
 			} else if result != nil {
 				l.applied[containerID] = *result
 			}
-			// If result==nil && err==nil, no volumes had block devices yet.
-			// We don't cache it so we retry on the next reconcile loop.
 		}
 	}
 
-	// Reset limits for containers that are in the cache but should no longer
-	// be limited.
 	for id, rule := range l.applied {
 		if wantLimited[id] {
 			continue
@@ -113,6 +86,27 @@ func (l *Limiter) reconcile(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// parseAnnotation parses an annotation value like "path=/data riops=100 wiops=50"
+// into a volume path and space-separated limit spec.
+func parseAnnotation(value string) (volumePath string, limitSpec string, err error) {
+	parts := strings.Fields(value)
+	var limits []string
+	for _, p := range parts {
+		if v, ok := strings.CutPrefix(p, "path="); ok {
+			volumePath = v
+		} else {
+			limits = append(limits, p)
+		}
+	}
+	if volumePath == "" {
+		return "", "", fmt.Errorf("missing path= in annotation value")
+	}
+	if len(limits) == 0 {
+		return "", "", fmt.Errorf("no limit parameters in annotation value")
+	}
+	return volumePath, strings.Join(limits, " "), nil
 }
 
 // volumesEqual returns true if two volume maps have the same names, limits, and paths.

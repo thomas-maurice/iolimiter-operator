@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -13,41 +14,13 @@ func TestContainerIDFromCgroupDir(t *testing.T) {
 		input string
 		want  string
 	}{
-		{
-			name:  "valid containerd scope",
-			input: "cri-containerd-abc123def456789012345678901234567890123456789012345678901234abcd.scope",
-			want:  "abc123def456789012345678901234567890123456789012345678901234abcd",
-		},
-		{
-			name:  "valid cri-o scope",
-			input: "crio-abc123def456789012345678901234567890123456789012345678901234abcd.scope",
-			want:  "abc123def456789012345678901234567890123456789012345678901234abcd",
-		},
-		{
-			name:  "invalid name - no match",
-			input: "kubepods-burstable.slice",
-			want:  "",
-		},
-		{
-			name:  "short ID - no match",
-			input: "cri-containerd-abc123.scope",
-			want:  "",
-		},
-		{
-			name:  "empty string",
-			input: "",
-			want:  "",
-		},
-		{
-			name:  "missing .scope suffix",
-			input: "cri-containerd-abc123def456789012345678901234567890123456789012345678901234abcd",
-			want:  "",
-		},
-		{
-			name:  "uppercase hex - no match",
-			input: "cri-containerd-ABC123DEF456789012345678901234567890123456789012345678901234.scope",
-			want:  "",
-		},
+		{"valid containerd scope", "cri-containerd-abc123def456789012345678901234567890123456789012345678901234abcd.scope", "abc123def456789012345678901234567890123456789012345678901234abcd"},
+		{"valid cri-o scope", "crio-abc123def456789012345678901234567890123456789012345678901234abcd.scope", "abc123def456789012345678901234567890123456789012345678901234abcd"},
+		{"invalid name", "kubepods-burstable.slice", ""},
+		{"short ID", "cri-containerd-abc123.scope", ""},
+		{"empty string", "", ""},
+		{"missing .scope suffix", "cri-containerd-abc123def456789012345678901234567890123456789012345678901234abcd", ""},
+		{"uppercase hex", "cri-containerd-ABC123DEF456789012345678901234567890123456789012345678901234.scope", ""},
 	}
 
 	for _, tt := range tests {
@@ -65,12 +38,9 @@ func TestFindContainerCgroup(t *testing.T) {
 
 	t.Run("standard layout", func(t *testing.T) {
 		root := t.TempDir()
-		// Create standard cgroup tree
 		cgroupDir := filepath.Join(root, "kubepods.slice", "kubepods-burstable.slice",
 			"kubepods-burstable-pod1234.slice", "cri-containerd-"+containerID+".scope")
-		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
-			t.Fatal(err)
-		}
+		os.MkdirAll(cgroupDir, 0755)
 
 		l := &Limiter{CgroupRoot: root, log: slog.New(slog.NewTextHandler(os.Stderr, nil))}
 		got, err := l.findContainerCgroup(containerID)
@@ -87,9 +57,7 @@ func TestFindContainerCgroup(t *testing.T) {
 		cgroupDir := filepath.Join(root, "kubelet.slice", "kubelet-kubepods.slice",
 			"kubelet-kubepods-burstable.slice", "kubelet-kubepods-burstable-pod5678.slice",
 			"cri-containerd-"+containerID+".scope")
-		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
-			t.Fatal(err)
-		}
+		os.MkdirAll(cgroupDir, 0755)
 
 		l := &Limiter{CgroupRoot: root, log: slog.New(slog.NewTextHandler(os.Stderr, nil))}
 		got, err := l.findContainerCgroup(containerID)
@@ -105,9 +73,7 @@ func TestFindContainerCgroup(t *testing.T) {
 		root := t.TempDir()
 		cgroupDir := filepath.Join(root, "kubepods.slice", "kubepods-besteffort.slice",
 			"kubepods-besteffort-podabcd.slice", "crio-"+containerID+".scope")
-		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
-			t.Fatal(err)
-		}
+		os.MkdirAll(cgroupDir, 0755)
 
 		l := &Limiter{CgroupRoot: root, log: slog.New(slog.NewTextHandler(os.Stderr, nil))}
 		got, err := l.findContainerCgroup(containerID)
@@ -121,11 +87,8 @@ func TestFindContainerCgroup(t *testing.T) {
 
 	t.Run("prunes system.slice", func(t *testing.T) {
 		root := t.TempDir()
-		// Put container under system.slice - should NOT be found
 		cgroupDir := filepath.Join(root, "system.slice", "cri-containerd-"+containerID+".scope")
-		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
-			t.Fatal(err)
-		}
+		os.MkdirAll(cgroupDir, 0755)
 
 		l := &Limiter{CgroupRoot: root, log: slog.New(slog.NewTextHandler(os.Stderr, nil))}
 		_, err := l.findContainerCgroup(containerID)
@@ -147,9 +110,7 @@ func TestFindContainerCgroup(t *testing.T) {
 func TestFindPIDInCgroup(t *testing.T) {
 	t.Run("returns first PID", func(t *testing.T) {
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "cgroup.procs"), []byte("1234\n5678\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
+		os.WriteFile(filepath.Join(dir, "cgroup.procs"), []byte("1234\n5678\n"), 0644)
 		got, err := findPIDInCgroup(dir)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -161,9 +122,7 @@ func TestFindPIDInCgroup(t *testing.T) {
 
 	t.Run("empty file", func(t *testing.T) {
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "cgroup.procs"), []byte(""), 0644); err != nil {
-			t.Fatal(err)
-		}
+		os.WriteFile(filepath.Join(dir, "cgroup.procs"), []byte(""), 0644)
 		_, err := findPIDInCgroup(dir)
 		if err == nil {
 			t.Error("expected error for empty cgroup.procs, got nil")
@@ -179,41 +138,23 @@ func TestFindPIDInCgroup(t *testing.T) {
 	})
 }
 
-func TestRecoverOrphanedRules(t *testing.T) {
+func TestResetAllRules(t *testing.T) {
 	containerID := "abc123def456789012345678901234567890123456789012345678901234abcd"
 
-	t.Run("recovers active rules", func(t *testing.T) {
+	t.Run("resets active rules", func(t *testing.T) {
 		root := t.TempDir()
 		cgroupDir := filepath.Join(root, "kubepods.slice", "kubepods-burstable.slice",
 			"kubepods-burstable-pod1234.slice", "cri-containerd-"+containerID+".scope")
-		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(cgroupDir, "io.max"), []byte("7:0 riops=100 wiops=50 rbps=max wbps=max\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
+		os.MkdirAll(cgroupDir, 0755)
+		os.WriteFile(filepath.Join(cgroupDir, "io.max"), []byte("7:0 riops=100 wiops=50 rbps=max wbps=max\n"), 0644)
 
 		l := New(root, "", "test-node", nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-		l.recoverOrphanedRules()
+		l.resetAllRules()
 
-		rule, ok := l.applied[containerID]
-		if !ok {
-			t.Fatal("expected container to be in applied map")
-		}
-		if rule.cgroupPath != cgroupDir {
-			t.Errorf("expected cgroupPath %q, got %q", cgroupDir, rule.cgroupPath)
-		}
-		// Should have a synthetic volume entry for the recovered device.
-		if len(rule.volumes) != 1 {
-			t.Fatalf("expected 1 recovered volume, got %d", len(rule.volumes))
-		}
-		for _, vol := range rule.volumes {
-			if vol.majMin != "7:0" {
-				t.Errorf("expected majMin %q, got %q", "7:0", vol.majMin)
-			}
-			if vol.limit != "__recovered__" {
-				t.Errorf("expected sentinel limit, got %q", vol.limit)
-			}
+		content, _ := os.ReadFile(filepath.Join(cgroupDir, "io.max"))
+		expected := "7:0 riops=max wiops=max rbps=max wbps=max"
+		if strings.TrimSpace(string(content)) != expected {
+			t.Errorf("io.max = %q, want %q", strings.TrimSpace(string(content)), expected)
 		}
 	})
 
@@ -221,18 +162,16 @@ func TestRecoverOrphanedRules(t *testing.T) {
 		root := t.TempDir()
 		cgroupDir := filepath.Join(root, "kubepods.slice", "kubepods-burstable.slice",
 			"kubepods-burstable-pod1234.slice", "cri-containerd-"+containerID+".scope")
-		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(cgroupDir, "io.max"), []byte("7:0 rbps=max wbps=max riops=max wiops=max\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
+		os.MkdirAll(cgroupDir, 0755)
+		original := "7:0 rbps=max wbps=max riops=max wiops=max\n"
+		os.WriteFile(filepath.Join(cgroupDir, "io.max"), []byte(original), 0644)
 
 		l := New(root, "", "test-node", nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-		l.recoverOrphanedRules()
+		l.resetAllRules()
 
-		if _, ok := l.applied[containerID]; ok {
-			t.Error("expected container NOT to be in applied map for all-max rules")
+		content, _ := os.ReadFile(filepath.Join(cgroupDir, "io.max"))
+		if strings.TrimSpace(string(content)) != strings.TrimSpace(original) {
+			t.Errorf("io.max was modified for all-max rules: %q", string(content))
 		}
 	})
 
@@ -240,15 +179,29 @@ func TestRecoverOrphanedRules(t *testing.T) {
 		root := t.TempDir()
 		cgroupDir := filepath.Join(root, "kubepods.slice", "kubepods-burstable.slice",
 			"kubepods-burstable-pod1234.slice", "cri-containerd-"+containerID+".scope")
-		if err := os.MkdirAll(cgroupDir, 0755); err != nil {
-			t.Fatal(err)
-		}
+		os.MkdirAll(cgroupDir, 0755)
 
 		l := New(root, "", "test-node", nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-		l.recoverOrphanedRules()
+		// Should not panic
+		l.resetAllRules()
+	})
 
-		if _, ok := l.applied[containerID]; ok {
-			t.Error("expected container NOT to be in applied map when io.max missing")
+	t.Run("resets multiple devices", func(t *testing.T) {
+		root := t.TempDir()
+		cgroupDir := filepath.Join(root, "kubepods.slice", "kubepods-burstable.slice",
+			"kubepods-burstable-pod1234.slice", "cri-containerd-"+containerID+".scope")
+		os.MkdirAll(cgroupDir, 0755)
+		os.WriteFile(filepath.Join(cgroupDir, "io.max"),
+			[]byte("7:0 riops=100 wiops=50\n8:0 wbps=1048576\n"), 0644)
+
+		l := New(root, "", "test-node", nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		l.resetAllRules()
+
+		content, _ := os.ReadFile(filepath.Join(cgroupDir, "io.max"))
+		got := strings.TrimSpace(string(content))
+		// Both devices should have been reset (last write wins per device in our impl)
+		if !strings.Contains(got, "riops=max") {
+			t.Errorf("io.max should contain reset rules, got: %q", got)
 		}
 	})
 }

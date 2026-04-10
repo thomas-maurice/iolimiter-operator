@@ -23,10 +23,7 @@ func containerIDFromCgroupDir(name string) string {
 }
 
 // findContainerCgroup walks the host cgroup tree looking for a scope directory
-// that contains the container ID. This handles all known layouts:
-//   - Standard:  /sys/fs/cgroup/kubepods.slice/<qos>/<pod>/cri-containerd-<ID>.scope
-//   - Kind:      /sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice/<qos>/<pod>/cri-containerd-<ID>.scope
-//   - CRI-O:     same patterns but with crio-<ID>.scope
+// that contains the container ID. Handles standard, Kind, and CRI-O layouts.
 func (l *Limiter) findContainerCgroup(containerID string) (string, error) {
 	suffixes := []string{
 		"cri-containerd-" + containerID + ".scope",
@@ -36,7 +33,7 @@ func (l *Limiter) findContainerCgroup(containerID string) (string, error) {
 	var found string
 	err := filepath.WalkDir(l.CgroupRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip unreadable dirs
+			return nil
 		}
 		if !d.IsDir() {
 			return nil
@@ -48,7 +45,6 @@ func (l *Limiter) findContainerCgroup(containerID string) (string, error) {
 				return filepath.SkipAll
 			}
 		}
-		// Prune directories we know won't contain kubepods
 		if name == "system.slice" || name == "user.slice" || name == "init.scope" {
 			return filepath.SkipDir
 		}
@@ -76,12 +72,11 @@ func findPIDInCgroup(cgroupPath string) (string, error) {
 	return lines[0], nil
 }
 
-// recoverOrphanedRules walks the cgroup tree on startup and finds containers
-// that have non-default io.max rules. It populates the applied cache with a
-// sentinel value so that the first reconcile loop can detect containers whose
-// pods no longer have annotations and reset their io.max.
-func (l *Limiter) recoverOrphanedRules() {
-	l.log.Info("scanning cgroup tree for orphaned io.max rules")
+// resetAllRules walks the cgroup tree on startup and resets any non-default
+// io.max rules to max. The first reconcile (5s later) re-applies whatever
+// should be active based on current pod annotations.
+func (l *Limiter) resetAllRules() {
+	l.log.Info("scanning cgroup tree for stale io.max rules")
 	found := 0
 
 	err := filepath.WalkDir(l.CgroupRoot, func(path string, d os.DirEntry, err error) error {
@@ -93,17 +88,14 @@ func (l *Limiter) recoverOrphanedRules() {
 		}
 		name := d.Name()
 
-		// Prune irrelevant subtrees
 		if name == "system.slice" || name == "user.slice" || name == "init.scope" {
 			return filepath.SkipDir
 		}
 
-		containerID := containerIDFromCgroupDir(name)
-		if containerID == "" {
+		if containerIDFromCgroupDir(name) == "" {
 			return nil
 		}
 
-		// Check if this cgroup has a non-default io.max
 		ioMaxPath := filepath.Join(path, "io.max")
 		content, err := os.ReadFile(ioMaxPath)
 		if err != nil {
@@ -115,38 +107,19 @@ func (l *Limiter) recoverOrphanedRules() {
 			return nil
 		}
 
-		// Found a cgroup with active io.max rules. Collect all device majMins.
-		var majMins []string
 		for majMin := range rules {
-			majMins = append(majMins, majMin)
-		}
-
-		l.log.Info("recovered orphaned io.max rule",
-			"containerID", containerID[:12],
-			"cgroupPath", path,
-			"devices", majMins,
-			"rules", strings.TrimSpace(string(content)))
-
-		// Create a synthetic volume entry per recovered device so resetIOLimits
-		// can clear each one.
-		recovered := make(map[string]volumeRule)
-		for i, mm := range majMins {
-			recovered[fmt.Sprintf("__recovered_%d__", i)] = volumeRule{
-				limit:  "__recovered__",
-				majMin: mm,
+			resetRule := majMin + " riops=max wiops=max rbps=max wbps=max"
+			l.log.Info("resetting stale io.max rule", "path", ioMaxPath, "rule", resetRule)
+			if err := os.WriteFile(ioMaxPath, []byte(resetRule+"\n"), 0644); err != nil {
+				l.log.Error("failed to reset stale io.max", "path", ioMaxPath, "err", err)
 			}
 		}
-		l.applied[containerID] = appliedRule{
-			volumes:    recovered,
-			cgroupPath: path,
-		}
-		recoveredRules.Inc()
 		found++
 		return nil
 	})
 
 	if err != nil {
-		l.log.Error("error walking cgroup tree for recovery", "err", err)
+		l.log.Error("error walking cgroup tree for reset", "err", err)
 	}
-	l.log.Info("cgroup recovery scan complete", "rulesFound", found)
+	l.log.Info("startup reset scan complete", "containersReset", found)
 }

@@ -16,14 +16,12 @@ import (
 const testContainerID = "abc123def456789012345678901234567890123456789012345678901234abcd"
 
 // setupTestEnv creates a temp cgroup tree + proc tree for a single container.
-// Returns the Limiter and the cgroup dir path.
 func setupTestEnv(t *testing.T, containerID string, pods ...*corev1.Pod) (*Limiter, string) {
 	t.Helper()
 
 	cgroupRoot := t.TempDir()
 	procRoot := t.TempDir()
 
-	// Create cgroup tree
 	cgroupDir := filepath.Join(cgroupRoot, "kubepods.slice", "kubepods-burstable.slice",
 		"kubepods-burstable-pod1234.slice", "cri-containerd-"+containerID+".scope")
 	if err := os.MkdirAll(cgroupDir, 0755); err != nil {
@@ -36,7 +34,6 @@ func setupTestEnv(t *testing.T, containerID string, pods ...*corev1.Pod) (*Limit
 		t.Fatal(err)
 	}
 
-	// Create mountinfo for the PID
 	mountinfo := `22 1 0:21 / /proc rw - proc proc rw
 30 1 259:1 / / rw - ext4 /dev/sda1 rw
 35 30 7:0 / /data rw - ext4 /dev/loop0 rw
@@ -49,11 +46,6 @@ func setupTestEnv(t *testing.T, containerID string, pods ...*corev1.Pod) (*Limit
 		t.Fatal(err)
 	}
 
-	// Build fake clientset
-	objs := make([]corev1.Pod, len(pods))
-	for i, p := range pods {
-		objs[i] = *p
-	}
 	clientset := fake.NewSimpleClientset()
 	for _, p := range pods {
 		if _, err := clientset.CoreV1().Pods(p.Namespace).Create(context.Background(), p, metav1.CreateOptions{}); err != nil {
@@ -73,7 +65,6 @@ func setupTestEnvMultiMount(t *testing.T, containerID string, pods ...*corev1.Po
 	cgroupRoot := t.TempDir()
 	procRoot := t.TempDir()
 
-	// Create cgroup tree
 	cgroupDir := filepath.Join(cgroupRoot, "kubepods.slice", "kubepods-burstable.slice",
 		"kubepods-burstable-pod1234.slice", "cri-containerd-"+containerID+".scope")
 	if err := os.MkdirAll(cgroupDir, 0755); err != nil {
@@ -86,7 +77,6 @@ func setupTestEnvMultiMount(t *testing.T, containerID string, pods ...*corev1.Po
 		t.Fatal(err)
 	}
 
-	// Create mountinfo with two block device mounts
 	mountinfo := `22 1 0:21 / /proc rw - proc proc rw
 30 1 259:1 / / rw - ext4 /dev/sda1 rw
 35 30 7:0 / /data rw - ext4 /dev/loop0 rw
@@ -134,8 +124,7 @@ func makePod(name, ns, nodeName string, annotations map[string]string, container
 
 func TestReconcile_AppliesLimits(t *testing.T) {
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationConfigPrefix + "data": "riops=100,wiops=50",
-		AnnotationPathPrefix + "data":   "/data",
+		AnnotationPrefix + "data": "path=/data riops=100 wiops=50",
 	}, testContainerID, true)
 
 	l, cgroupDir := setupTestEnv(t, testContainerID, pod)
@@ -153,7 +142,6 @@ func TestReconcile_AppliesLimits(t *testing.T) {
 		t.Errorf("io.max = %q, want %q", strings.TrimSpace(string(content)), expected)
 	}
 
-	// Verify it's in the applied cache
 	if _, ok := l.applied[testContainerID]; !ok {
 		t.Error("expected container in applied cache")
 	}
@@ -168,7 +156,6 @@ func TestReconcile_SkipsMissingAnnotation(t *testing.T) {
 		t.Fatalf("reconcile error: %v", err)
 	}
 
-	// io.max should still be empty
 	content, err := os.ReadFile(filepath.Join(cgroupDir, "io.max"))
 	if err != nil {
 		t.Fatal(err)
@@ -178,33 +165,9 @@ func TestReconcile_SkipsMissingAnnotation(t *testing.T) {
 	}
 }
 
-func TestReconcile_SkipsOrphanedConfig(t *testing.T) {
-	// Config without matching path - should warn and skip.
+func TestReconcile_SkipsInvalidAnnotation(t *testing.T) {
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationConfigPrefix + "data": "riops=100",
-		// no path.data
-	}, testContainerID, true)
-
-	l, cgroupDir := setupTestEnv(t, testContainerID, pod)
-
-	if err := l.reconcile(context.Background()); err != nil {
-		t.Fatalf("reconcile error: %v", err)
-	}
-
-	content, err := os.ReadFile(filepath.Join(cgroupDir, "io.max"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(string(content)) != "" {
-		t.Errorf("io.max should be empty, got %q", string(content))
-	}
-}
-
-func TestReconcile_SkipsOrphanedPath(t *testing.T) {
-	// Path without matching config - should warn and skip.
-	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationPathPrefix + "data": "/data",
-		// no config.data
+		AnnotationPrefix + "data": "riops=100", // missing path=
 	}, testContainerID, true)
 
 	l, cgroupDir := setupTestEnv(t, testContainerID, pod)
@@ -224,8 +187,7 @@ func TestReconcile_SkipsOrphanedPath(t *testing.T) {
 
 func TestReconcile_SkipsRootVolumePath(t *testing.T) {
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationConfigPrefix + "data": "riops=100",
-		AnnotationPathPrefix + "data":   "/",
+		AnnotationPrefix + "data": "path=/ riops=100",
 	}, testContainerID, true)
 
 	l, cgroupDir := setupTestEnv(t, testContainerID, pod)
@@ -245,23 +207,19 @@ func TestReconcile_SkipsRootVolumePath(t *testing.T) {
 
 func TestReconcile_CacheHit(t *testing.T) {
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationConfigPrefix + "data": "riops=100,wiops=50",
-		AnnotationPathPrefix + "data":   "/data",
+		AnnotationPrefix + "data": "path=/data riops=100 wiops=50",
 	}, testContainerID, true)
 
 	l, cgroupDir := setupTestEnv(t, testContainerID, pod)
 
-	// First reconcile - applies
 	if err := l.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
 
-	// Overwrite io.max with something different to detect re-writes
 	if err := os.WriteFile(filepath.Join(cgroupDir, "io.max"), []byte("MARKER\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Second reconcile - should skip (cache hit)
 	if err := l.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
@@ -270,7 +228,6 @@ func TestReconcile_CacheHit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Should still have MARKER because reconcile skipped
 	if strings.TrimSpace(string(content)) != "MARKER" {
 		t.Errorf("io.max = %q, expected MARKER (cache hit should skip re-apply)", strings.TrimSpace(string(content)))
 	}
@@ -278,29 +235,27 @@ func TestReconcile_CacheHit(t *testing.T) {
 
 func TestReconcile_AnnotationChanged(t *testing.T) {
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationConfigPrefix + "data": "riops=100,wiops=50",
-		AnnotationPathPrefix + "data":   "/data",
+		AnnotationPrefix + "data": "path=/data riops=100 wiops=50",
 	}, testContainerID, true)
 
-	l, cgroupDir := setupTestEnv(t, testContainerID, pod)
+	l, _ := setupTestEnv(t, testContainerID, pod)
 
-	// First reconcile
 	if err := l.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
 
-	// Update pod annotation
-	pod.Annotations[AnnotationConfigPrefix+"data"] = "riops=200,wiops=100"
+	pod.Annotations[AnnotationPrefix+"data"] = "path=/data riops=200 wiops=100"
 	if _, err := l.Client.CoreV1().Pods("default").Update(context.Background(), pod, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
-	// Second reconcile - should re-apply
 	if err := l.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
 
-	content, err := os.ReadFile(filepath.Join(cgroupDir, "io.max"))
+	// Find the cgroup dir to check io.max
+	cgroupPath := l.applied[testContainerID].cgroupPath
+	content, err := os.ReadFile(filepath.Join(cgroupPath, "io.max"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,24 +267,20 @@ func TestReconcile_AnnotationChanged(t *testing.T) {
 
 func TestReconcile_ResetsRemovedAnnotation(t *testing.T) {
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationConfigPrefix + "data": "riops=100,wiops=50",
-		AnnotationPathPrefix + "data":   "/data",
+		AnnotationPrefix + "data": "path=/data riops=100 wiops=50",
 	}, testContainerID, true)
 
 	l, cgroupDir := setupTestEnv(t, testContainerID, pod)
 
-	// First reconcile - applies
 	if err := l.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
 
-	// Remove annotations
 	pod.Annotations = map[string]string{}
 	if _, err := l.Client.CoreV1().Pods("default").Update(context.Background(), pod, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
-	// Second reconcile - should reset
 	if err := l.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
@@ -343,7 +294,6 @@ func TestReconcile_ResetsRemovedAnnotation(t *testing.T) {
 		t.Errorf("io.max = %q, want %q", strings.TrimSpace(string(content)), expected)
 	}
 
-	// Should be removed from cache
 	if _, ok := l.applied[testContainerID]; ok {
 		t.Error("expected container removed from applied cache")
 	}
@@ -351,9 +301,8 @@ func TestReconcile_ResetsRemovedAnnotation(t *testing.T) {
 
 func TestReconcile_SkipsUnreadyContainers(t *testing.T) {
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationConfigPrefix + "data": "riops=100",
-		AnnotationPathPrefix + "data":   "/data",
-	}, testContainerID, false) // not ready
+		AnnotationPrefix + "data": "path=/data riops=100",
+	}, testContainerID, false)
 
 	l, cgroupDir := setupTestEnv(t, testContainerID, pod)
 
@@ -372,10 +321,8 @@ func TestReconcile_SkipsUnreadyContainers(t *testing.T) {
 
 func TestReconcile_MultipleVolumes(t *testing.T) {
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationConfigPrefix + "data": "riops=100,wiops=50",
-		AnnotationPathPrefix + "data":   "/data",
-		AnnotationConfigPrefix + "logs": "wbps=1048576",
-		AnnotationPathPrefix + "logs":   "/var/log/app",
+		AnnotationPrefix + "data": "path=/data riops=100 wiops=50",
+		AnnotationPrefix + "logs": "path=/var/log/app wbps=1048576",
 	}, testContainerID, true)
 
 	l, cgroupDir := setupTestEnvMultiMount(t, testContainerID, pod)
@@ -389,7 +336,6 @@ func TestReconcile_MultipleVolumes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Both rules should be present (order may vary).
 	got := strings.TrimSpace(string(content))
 	if !strings.Contains(got, "7:0 riops=100 wiops=50") {
 		t.Errorf("io.max missing data rule, got: %q", got)
@@ -398,7 +344,6 @@ func TestReconcile_MultipleVolumes(t *testing.T) {
 		t.Errorf("io.max missing logs rule, got: %q", got)
 	}
 
-	// Cache should have both volumes.
 	rule, ok := l.applied[testContainerID]
 	if !ok {
 		t.Fatal("expected container in applied cache")
@@ -410,25 +355,20 @@ func TestReconcile_MultipleVolumes(t *testing.T) {
 
 func TestReconcile_MultipleVolumesCacheHit(t *testing.T) {
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationConfigPrefix + "data": "riops=100,wiops=50",
-		AnnotationPathPrefix + "data":   "/data",
-		AnnotationConfigPrefix + "logs": "wbps=1048576",
-		AnnotationPathPrefix + "logs":   "/var/log/app",
+		AnnotationPrefix + "data": "path=/data riops=100 wiops=50",
+		AnnotationPrefix + "logs": "path=/var/log/app wbps=1048576",
 	}, testContainerID, true)
 
 	l, cgroupDir := setupTestEnvMultiMount(t, testContainerID, pod)
 
-	// First reconcile - applies
 	if err := l.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
 
-	// Overwrite io.max to detect re-writes
 	if err := os.WriteFile(filepath.Join(cgroupDir, "io.max"), []byte("MARKER\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Second reconcile - should skip (cache hit, both volumes unchanged)
 	if err := l.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
@@ -444,26 +384,21 @@ func TestReconcile_MultipleVolumesCacheHit(t *testing.T) {
 
 func TestReconcile_ChangeOneVolumeReapplies(t *testing.T) {
 	pod := makePod("test-pod", "default", "test-node", map[string]string{
-		AnnotationConfigPrefix + "data": "riops=100,wiops=50",
-		AnnotationPathPrefix + "data":   "/data",
-		AnnotationConfigPrefix + "logs": "wbps=1048576",
-		AnnotationPathPrefix + "logs":   "/var/log/app",
+		AnnotationPrefix + "data": "path=/data riops=100 wiops=50",
+		AnnotationPrefix + "logs": "path=/var/log/app wbps=1048576",
 	}, testContainerID, true)
 
 	l, cgroupDir := setupTestEnvMultiMount(t, testContainerID, pod)
 
-	// First reconcile
 	if err := l.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
 
-	// Change only the logs limit
-	pod.Annotations[AnnotationConfigPrefix+"logs"] = "wbps=2097152"
+	pod.Annotations[AnnotationPrefix+"logs"] = "path=/var/log/app wbps=2097152"
 	if _, err := l.Client.CoreV1().Pods("default").Update(context.Background(), pod, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
-	// Second reconcile - should re-apply all (the set changed)
 	if err := l.reconcile(context.Background()); err != nil {
 		t.Fatalf("reconcile error: %v", err)
 	}
@@ -475,5 +410,149 @@ func TestReconcile_ChangeOneVolumeReapplies(t *testing.T) {
 	got := strings.TrimSpace(string(content))
 	if !strings.Contains(got, "8:0 wbps=2097152") {
 		t.Errorf("io.max missing updated logs rule, got: %q", got)
+	}
+}
+
+func TestReconcile_HandlesApplyError(t *testing.T) {
+	// Container has no cgroup tree — applyIOLimits will fail at findContainerCgroup.
+	containerID := "bbb123def456789012345678901234567890123456789012345678901234abcd"
+	pod := makePod("test-pod", "default", "test-node", map[string]string{
+		AnnotationPrefix + "data": "path=/data riops=100",
+	}, containerID, true)
+
+	cgroupRoot := t.TempDir()
+	procRoot := t.TempDir()
+	// No cgroup tree created — findContainerCgroup will fail
+
+	clientset := fake.NewSimpleClientset()
+	clientset.CoreV1().Pods("default").Create(context.Background(), pod, metav1.CreateOptions{})
+
+	l := New(cgroupRoot, procRoot, "test-node", clientset, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	// Should not return error — apply errors are logged, not propagated
+	if err := l.reconcile(context.Background()); err != nil {
+		t.Fatalf("reconcile should not propagate apply errors: %v", err)
+	}
+
+	// Container should NOT be in applied cache
+	if _, ok := l.applied[containerID]; ok {
+		t.Error("expected container NOT in applied cache after apply error")
+	}
+}
+
+func TestVolumesEqual(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b map[string]volumeRule
+		want bool
+	}{
+		{
+			name: "both empty",
+			a:    map[string]volumeRule{},
+			b:    map[string]volumeRule{},
+			want: true,
+		},
+		{
+			name: "equal",
+			a:    map[string]volumeRule{"data": {limit: "riops=100", volumePath: "/data"}},
+			b:    map[string]volumeRule{"data": {limit: "riops=100", volumePath: "/data"}},
+			want: true,
+		},
+		{
+			name: "different length",
+			a:    map[string]volumeRule{"data": {limit: "riops=100", volumePath: "/data"}},
+			b:    map[string]volumeRule{},
+			want: false,
+		},
+		{
+			name: "different name",
+			a:    map[string]volumeRule{"data": {limit: "riops=100", volumePath: "/data"}},
+			b:    map[string]volumeRule{"logs": {limit: "riops=100", volumePath: "/data"}},
+			want: false,
+		},
+		{
+			name: "different limit",
+			a:    map[string]volumeRule{"data": {limit: "riops=100", volumePath: "/data"}},
+			b:    map[string]volumeRule{"data": {limit: "riops=200", volumePath: "/data"}},
+			want: false,
+		},
+		{
+			name: "different path",
+			a:    map[string]volumeRule{"data": {limit: "riops=100", volumePath: "/data"}},
+			b:    map[string]volumeRule{"data": {limit: "riops=100", volumePath: "/logs"}},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := volumesEqual(tt.a, tt.b); got != tt.want {
+				t.Errorf("volumesEqual() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseAnnotation(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantPath   string
+		wantLimit  string
+		wantErr    bool
+	}{
+		{
+			name:      "standard",
+			input:     "path=/data riops=100 wiops=50",
+			wantPath:  "/data",
+			wantLimit: "riops=100 wiops=50",
+		},
+		{
+			name:      "path at end",
+			input:     "riops=100 path=/data",
+			wantPath:  "/data",
+			wantLimit: "riops=100",
+		},
+		{
+			name:      "all params",
+			input:     "path=/data riops=100 wiops=50 rbps=10485760 wbps=5242880",
+			wantPath:  "/data",
+			wantLimit: "riops=100 wiops=50 rbps=10485760 wbps=5242880",
+		},
+		{
+			name:    "missing path",
+			input:   "riops=100 wiops=50",
+			wantErr: true,
+		},
+		{
+			name:    "no limits",
+			input:   "path=/data",
+			wantErr: true,
+		},
+		{
+			name:    "empty",
+			input:   "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, limit, err := parseAnnotation(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if path != tt.wantPath {
+				t.Errorf("path = %q, want %q", path, tt.wantPath)
+			}
+			if limit != tt.wantLimit {
+				t.Errorf("limit = %q, want %q", limit, tt.wantLimit)
+			}
+		})
 	}
 }

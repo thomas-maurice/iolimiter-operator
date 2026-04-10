@@ -1,7 +1,9 @@
 package limiter
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -11,31 +13,24 @@ import (
 // applyIOLimits resolves a container's cgroup and block devices for all volumes,
 // then writes io.max rules. Returns nil, nil if no volumes have block devices yet.
 func (l *Limiter) applyIOLimits(log *slog.Logger, containerID string, volumes map[string]volumeRule) (*appliedRule, error) {
-	// Step 1: find the container's cgroup directory on the host
 	cgroupPath, err := l.findContainerCgroup(containerID)
 	if err != nil {
 		return nil, fmt.Errorf("finding cgroup: %w", err)
 	}
-	log.Debug("found cgroup", "cgroupPath", cgroupPath)
 
-	// Step 2: find a PID inside this cgroup
 	pid, err := findPIDInCgroup(cgroupPath)
 	if err != nil {
 		return nil, fmt.Errorf("finding PID: %w", err)
 	}
-	log.Debug("found PID", "pid", pid)
 
-	// Step 3: resolve block devices for each volume
 	resolved := make(map[string]volumeRule)
 	for name, vol := range volumes {
-		majMin, err := l.findBlockDeviceForPath(log, pid, vol.volumePath)
+		majMin, err := l.findBlockDeviceForPath(pid, vol.volumePath)
 		if err != nil {
-			deviceResolutionFailures.Inc()
 			log.Info("no block device found for volume - skipping",
 				"name", name, "volumePath", vol.volumePath, "detail", err.Error())
 			continue
 		}
-		log.Debug("resolved block device", "name", name, "volumePath", vol.volumePath, "majMin", majMin)
 		resolved[name] = volumeRule{
 			limit:      vol.limit,
 			volumePath: vol.volumePath,
@@ -44,15 +39,13 @@ func (l *Limiter) applyIOLimits(log *slog.Logger, containerID string, volumes ma
 	}
 
 	if len(resolved) == 0 {
-		return nil, nil // no volumes have block devices yet
+		return nil, nil
 	}
 
-	// Step 4: write all rules to io.max in a single write
 	ioMaxPath := filepath.Join(cgroupPath, "io.max")
 	var lines []string
 	for name, vol := range resolved {
-		parts := strings.Split(vol.limit, ",")
-		rule := vol.majMin + " " + strings.Join(parts, " ")
+		rule := vol.majMin + " " + vol.limit
 		lines = append(lines, rule)
 		log.Info("writing io.max", "name", name, "path", ioMaxPath, "rule", rule)
 	}
@@ -64,8 +57,6 @@ func (l *Limiter) applyIOLimits(log *slog.Logger, containerID string, volumes ma
 	}
 
 	applyTotal.WithLabelValues("success").Inc()
-	content, _ := os.ReadFile(ioMaxPath)
-	log.Info("io.max verified", "content", strings.TrimSpace(string(content)))
 	return &appliedRule{
 		volumes:    resolved,
 		cgroupPath: cgroupPath,
@@ -73,57 +64,35 @@ func (l *Limiter) applyIOLimits(log *slog.Logger, containerID string, volumes ma
 }
 
 // resetIOLimits writes "max" values to a container's io.max to clear all limits.
-// If the cgroup is already gone (container deleted), this is a no-op.
 func (l *Limiter) resetIOLimits(containerID string, rule appliedRule) {
 	shortID := containerID[:12]
 	log := l.log.With("containerID", shortID)
 
-	// The cgroup may already be gone (container deleted). That's fine.
 	cgroupPath := rule.cgroupPath
 	if cgroupPath == "" {
 		var err error
 		cgroupPath, err = l.findContainerCgroup(containerID)
 		if err != nil {
-			log.Debug("container cgroup gone, nothing to reset", "err", err)
+			log.Debug("container cgroup gone, nothing to reset")
 			return
 		}
 	}
 
 	ioMaxPath := filepath.Join(cgroupPath, "io.max")
 	if _, err := os.Stat(ioMaxPath); err != nil {
-		log.Debug("io.max file gone, nothing to reset", "cgroupPath", cgroupPath)
+		log.Debug("io.max file gone, nothing to reset")
 		return
 	}
 
-	// Collect all device majMins that need resetting.
-	var majMins []string
-	if len(rule.volumes) > 0 {
-		seen := make(map[string]bool)
-		for _, vol := range rule.volumes {
-			if vol.majMin != "" && !seen[vol.majMin] {
-				majMins = append(majMins, vol.majMin)
-				seen[vol.majMin] = true
-			}
-		}
-	}
-
-	// Fallback: read io.max to find active rules.
-	if len(majMins) == 0 {
-		content, err := os.ReadFile(ioMaxPath)
-		if err != nil {
-			log.Debug("could not read io.max for reset", "err", err)
-			return
-		}
-		for majMin := range parseIOMaxRules(string(content)) {
-			majMins = append(majMins, majMin)
-		}
-	}
-
+	seen := make(map[string]bool)
 	resetTotal.Inc()
-	for _, majMin := range majMins {
-		resetRule := majMin + " riops=max wiops=max rbps=max wbps=max"
-		log.Info("resetting io.max (annotation removed or pod gone)",
-			"path", ioMaxPath, "rule", resetRule)
+	for _, vol := range rule.volumes {
+		if vol.majMin == "" || seen[vol.majMin] {
+			continue
+		}
+		seen[vol.majMin] = true
+		resetRule := vol.majMin + " riops=max wiops=max rbps=max wbps=max"
+		log.Info("resetting io.max", "path", ioMaxPath, "rule", resetRule)
 		if err := os.WriteFile(ioMaxPath, []byte(resetRule+"\n"), 0644); err != nil {
 			log.Error("failed to reset io.max", "err", err)
 		}
@@ -137,4 +106,78 @@ func stripContainerIDPrefix(fullID string) string {
 		return fullID[idx+2:]
 	}
 	return fullID
+}
+
+// findBlockDeviceForPath reads /proc/<pid>/mountinfo and finds the block
+// device (major:minor) for the most specific mount matching volumePath.
+func (l *Limiter) findBlockDeviceForPath(pid, volumePath string) (string, error) {
+	f, err := os.Open(filepath.Join(l.ProcRoot, pid, "mountinfo"))
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	return findBlockDeviceFromMountinfo(f, volumePath)
+}
+
+// findBlockDeviceFromMountinfo parses a mountinfo reader and finds the block
+// device (major:minor) for the most specific mount matching volumePath.
+func findBlockDeviceFromMountinfo(r io.Reader, volumePath string) (string, error) {
+	var bestMatch, bestMountPoint string
+
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 5 {
+			continue
+		}
+		majMin := fields[2]
+		mountPoint := fields[4]
+
+		if strings.HasPrefix(majMin, "0:") {
+			continue
+		}
+
+		isRelevant := volumePath == mountPoint ||
+			strings.HasPrefix(volumePath, mountPoint+"/") ||
+			mountPoint == "/"
+
+		if !isRelevant {
+			continue
+		}
+
+		if len(mountPoint) > len(bestMountPoint) {
+			bestMountPoint = mountPoint
+			bestMatch = majMin
+		}
+	}
+
+	if bestMatch == "" {
+		return "", fmt.Errorf("no block device found for %s", volumePath)
+	}
+	return bestMatch, nil
+}
+
+// parseIOMaxRules parses io.max content and returns a map of majMin -> rule line
+// for lines that have at least one non-max value (i.e. an active limit).
+func parseIOMaxRules(content string) map[string]string {
+	rules := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSpace(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		majMin := parts[0]
+		for _, p := range parts[1:] {
+			if !strings.HasSuffix(p, "=max") {
+				rules[majMin] = line
+				break
+			}
+		}
+	}
+	return rules
 }

@@ -1,6 +1,7 @@
 # k8s-blkio-limiter
 
 [![Build and Push](https://github.com/thomas-maurice/k8s-blkio-limiter/actions/workflows/build.yaml/badge.svg)](https://github.com/thomas-maurice/k8s-blkio-limiter/actions/workflows/build.yaml)
+[![Integration Test](https://github.com/thomas-maurice/k8s-blkio-limiter/actions/workflows/integration.yaml/badge.svg)](https://github.com/thomas-maurice/k8s-blkio-limiter/actions/workflows/integration.yaml)
 
 A Kubernetes DaemonSet that applies cgroup v2 `io.max` IOPS/bandwidth limits to containers based on pod annotations.
 
@@ -25,31 +26,30 @@ make test            # deploy annotated test pod and tail its logs
 ## How it works
 
 1. DaemonSet lists pods on its node via the Kubernetes API.
-2. Finds pods with `blkio-limiter.maurice.fr/config.<name>` and `blkio-limiter.maurice.fr/path.<name>` annotation pairs.
-3. For each named volume pair, resolves container ID -> cgroup path -> PID -> `/proc/<pid>/mountinfo` -> block device `major:minor`.
+2. Finds pods with `blkio-limiter.maurice.fr/<name>` annotations.
+3. For each annotation, resolves container ID -> cgroup path -> PID -> `/proc/<pid>/mountinfo` -> block device `major:minor`.
 4. Writes all `io.max` rules to the container's cgroup.
-5. Polls every 5s. Resets limits when annotations are removed. Recovers orphaned rules on startup.
+5. Polls every 5s. Resets limits when annotations are removed. Resets all stale rules on startup.
 
 ## Annotations
 
-Each volume to limit needs a pair of annotations sharing the same `<name>` suffix:
+Each volume to limit needs a single annotation:
 
 ```yaml
 metadata:
   annotations:
     # Volume "data" - limit to 5 MB/s write, 10 MB/s read, 100/50 IOPS
-    blkio-limiter.maurice.fr/config.data: "riops=100,wiops=50,rbps=10485760,wbps=5242880"
-    blkio-limiter.maurice.fr/path.data: "/data"
+    blkio-limiter.maurice.fr/data: "path=/data riops=100 wiops=50 rbps=10485760 wbps=5242880"
 
     # Volume "logs" - limit to 1 MB/s write
-    blkio-limiter.maurice.fr/config.logs: "wbps=1048576"
-    blkio-limiter.maurice.fr/path.logs: "/var/log/app"
+    blkio-limiter.maurice.fr/logs: "path=/var/log/app wbps=1048576"
 ```
 
-If only one of `config.<name>` / `path.<name>` is present (orphaned), it is ignored and a warning is logged.
+The annotation key suffix is a human-friendly name (e.g. `data`, `logs`). The value contains `path=<mount>` plus any limit parameters separated by spaces.
 
 | Parameter | Meaning                    | Unit          |
 |-----------|----------------------------|---------------|
+| `path`    | Mount path inside container (required) | absolute path |
 | `riops`   | Max read IOPS              | ops/sec       |
 | `wiops`   | Max write IOPS             | ops/sec       |
 | `rbps`    | Max read bandwidth         | bytes/sec     |
@@ -59,7 +59,7 @@ If only one of `config.<name>` / `path.<name>` is present (orphaned), it is igno
 
 ### Prerequisites
 
-- Docker, kind, kubectl, Go 1.22+, Helm 3
+- Docker, kind, kubectl, Go 1.26+, Helm 3
 
 ### Loop device
 
@@ -99,12 +99,10 @@ make node-mounts     # show block device mounts on the node
 ```
 cmd/k8s-blkio-limiter/main.go    # Entry point
 internal/limiter/
-  limiter.go                      # Limiter struct, New(), Run()
-  reconcile.go                    # Pod listing, annotation validation, cache
-  cgroup.go                       # Cgroup tree walking, PID resolution, orphan recovery
-  device.go                       # Block device resolution, io.max parsing
-  apply.go                        # io.max writing, reset, container ID helpers
-  types.go                        # Types and constants
+  limiter.go                      # Limiter struct, types, constants, New(), Run()
+  reconcile.go                    # Pod listing, annotation parsing, cache
+  cgroup.go                       # Cgroup tree walking, PID resolution, startup reset
+  apply.go                        # io.max writing, reset, device resolution
   *_test.go                       # Unit tests
 charts/k8s-blkio-limiter/        # Helm chart
 scripts/setup-loopdev.sh          # Loop device setup for kind

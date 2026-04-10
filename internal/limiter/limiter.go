@@ -9,12 +9,34 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+const (
+	// AnnotationPrefix is the prefix for blkio-limiter annotations.
+	// Usage: blkio-limiter.maurice.fr/<name> = "path=/data riops=100 wiops=50"
+	AnnotationPrefix = "blkio-limiter.maurice.fr/"
+
+	// ReconcileInterval is the time between reconciliation loops.
+	ReconcileInterval = 5 * time.Second
+)
+
+// volumeRule tracks the limit applied to a single volume.
+type volumeRule struct {
+	limit      string // space-separated limit params, e.g. "riops=100 wiops=50"
+	volumePath string
+	majMin     string // resolved at apply time, e.g. "7:0"
+}
+
+// appliedRule tracks what we last wrote to a container's io.max.
+type appliedRule struct {
+	volumes    map[string]volumeRule // keyed by annotation name (e.g. "data")
+	cgroupPath string               // kept so we can reset without re-resolving
+}
+
 // Limiter applies cgroup v2 io.max limits to containers based on pod annotations.
 type Limiter struct {
-	CgroupRoot string               // "/host-cgroup" in prod, t.TempDir() in tests
-	ProcRoot   string               // "/host-proc" in prod, t.TempDir() in tests
-	NodeName   string               // node name from Downward API
-	Client     kubernetes.Interface // Interface, not *Clientset - enables fake.NewSimpleClientset()
+	CgroupRoot string
+	ProcRoot   string
+	NodeName   string
+	Client     kubernetes.Interface
 	applied    map[string]appliedRule
 	log        *slog.Logger
 }
@@ -33,7 +55,7 @@ func New(cgroupRoot, procRoot, nodeName string, client kubernetes.Interface, log
 
 // Run starts the reconciliation loop. It blocks forever.
 func (l *Limiter) Run(ctx context.Context) {
-	l.recoverOrphanedRules()
+	l.resetAllRules()
 
 	for {
 		timer := prometheus.NewTimer(reconcileDuration)
@@ -45,13 +67,7 @@ func (l *Limiter) Run(ctx context.Context) {
 			l.log.Error("reconcile error", "err", err)
 		}
 
-		// Update gauges from the applied cache.
 		limitedContainers.Set(float64(len(l.applied)))
-		volCount := 0
-		for _, rule := range l.applied {
-			volCount += len(rule.volumes)
-		}
-		limitedVolumes.Set(float64(volCount))
 
 		select {
 		case <-ctx.Done():

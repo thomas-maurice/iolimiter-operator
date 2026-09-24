@@ -1,0 +1,99 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# F7 (Fable review): config/vap's ValidatingAdmissionPolicy CEL expressions
+# must name the controller/agent ServiceAccounts by their final
+# (post-namespace/post-namePrefix) identity, system:serviceaccount:<ns>:
+# <name> -- a hardcoded literal was correct only for the shipped default
+# namespace and silently denied the *real* controller/agent the moment
+# anyone installed into a different one (no user-visible error pointed at
+# the cause). `base/` applies namespace/namePrefix first (see its own
+# comment for why the ordering is guaranteed); the replacements below then
+# read the ServiceAccounts' true final identity out of the fully-built
+# base and splice it into config/vap/podiolimit_{write,status}_policy.yaml's
+# expression strings (see those files' own comments for the exact
+# delimiter/index scheme).
+#
+# Proof this produces identical output to the pre-fix hardcoded literals
+# for the default install, and correctly-derived output for a different
+# namespace: `kustomize build config/default` (default namespace) and
+# `kustomize edit set namespace <other>` + rebuild (see
+# test/e2e/hardening and hack/checkmanifestparity, which both build this
+# exact path).
+resources:
+- base
+
+# F10 (Fable review): the shipped default is the published image, not the
+# local dev tag -- `kubectl apply -k config/default` must work out of the
+# box for anyone, not just this repo's own `make deploy`/`deploy-kind`
+# (which override it further via a throwaway temp overlay instead of
+# editing this tracked file, see the Makefile's kustomize_build_with_image;
+# that overlay's own `images:` selector matches by *this* name, so if you
+# change it, update the Makefile too).
+#
+# `newTag: latest` stays a moving tag on purpose (D39, security review): a
+# placeholder (e.g. "REPLACE_ME") would make the documented one-liner
+# (`kubectl apply -k config/default`) fail for every first-time user, for a
+# problem `kustomize edit set image` already solves without one -- see
+# README's "Install"/pinning guidance, which is where a real deployment
+# should actually pin a released tag or digest. The Helm chart's default
+# (`Chart.appVersion`) is already pinned per release, so this default only
+# affects the raw-kustomize path.
+images:
+- name: controller
+  newName: ghcr.io/thomas-maurice/k8s-blkio-limiter
+  newTag: latest
+
+replacements:
+- source:
+    fieldPath: metadata.namespace
+    kind: ServiceAccount
+    name: k8s-blkio-limiter-controller-manager
+  targets:
+  - fieldPaths:
+    - spec.validations.0.expression
+    options:
+      delimiter: ''''
+      index: 3
+    select:
+      kind: ValidatingAdmissionPolicy
+      name: k8s-blkio-limiter-podiolimit-write-restricted
+- source:
+    fieldPath: metadata.name
+    kind: ServiceAccount
+    name: k8s-blkio-limiter-controller-manager
+  targets:
+  - fieldPaths:
+    - spec.validations.0.expression
+    options:
+      delimiter: ''''
+      index: 7
+    select:
+      kind: ValidatingAdmissionPolicy
+      name: k8s-blkio-limiter-podiolimit-write-restricted
+- source:
+    fieldPath: metadata.namespace
+    kind: ServiceAccount
+    name: k8s-blkio-limiter-agent
+  targets:
+  - fieldPaths:
+    - spec.validations.0.expression
+    options:
+      delimiter: ''''
+      index: 3
+    select:
+      kind: ValidatingAdmissionPolicy
+      name: k8s-blkio-limiter-podiolimit-status-write-restricted
+- source:
+    fieldPath: metadata.name
+    kind: ServiceAccount
+    name: k8s-blkio-limiter-agent
+  targets:
+  - fieldPaths:
+    - spec.validations.0.expression
+    options:
+      delimiter: ''''
+      index: 7
+    select:
+      kind: ValidatingAdmissionPolicy
+      name: k8s-blkio-limiter-podiolimit-status-write-restricted

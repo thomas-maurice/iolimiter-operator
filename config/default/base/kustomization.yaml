@@ -1,0 +1,69 @@
+# The original config/default content (moved here, Fable review F7): this
+# base applies namespace + namePrefix to every resource FIRST. The parent
+# kustomization.yaml (config/default/kustomization.yaml) wraps this as its
+# only resource and adds `replacements` that read the now-final,
+# post-namespace/post-namePrefix ServiceAccount identities to fill in
+# config/vap's ValidatingAdmissionPolicy CEL expressions -- kustomize fully
+# resolves a referenced sub-kustomization (this directory) before the
+# parent's own transformers/replacements run, so the SA objects the
+# replacements select against already carry their real, final name and
+# namespace. Splitting this out is what makes that ordering guaranteed
+# instead of accidental.
+#
+# Adds namespace to all resources.
+namespace: k8s-blkio-limiter-system
+
+# Value of this field is prepended to the
+# names of all resources, e.g. a deployment named
+# "wordpress" becomes "alices-wordpress".
+# Note that it should also match with the prefix (text before '-') of the namespace
+# field above.
+namePrefix: k8s-blkio-limiter-
+
+# Labels to add to all resources and selectors.
+#labels:
+#- includeSelectors: true
+#  pairs:
+#    someName: someValue
+
+# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
+# crd/kustomization.yaml
+#- ../webhook
+# [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
+#- ../certmanager
+# [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
+#- ../prometheus
+# [METRICS] Expose the controller manager metrics service.
+resources:
+- ../../crd
+- ../../rbac
+- ../../manager
+- ../../agent
+- ../../vap
+- metrics_service.yaml
+# [NETWORK POLICY] Control ingress to metrics and webhook ports.
+# Allow metrics traffic from pods in namespaces labeled 'metrics: enabled'.
+# Allow webhook traffic from all sources.
+#- ../network-policy
+
+# Uncomment the patches line if you enable Metrics
+# [METRICS] The following patch will enable the metrics endpoint using HTTPS and the port :8443.
+# More info: https://book.kubebuilder.io/reference/metrics
+# D14: PSA privileged labels on the shared namespace (the agent's hostPath
+# volumes need it; the controller Deployment doesn't).
+patches:
+- path: manager_metrics_patch.yaml
+  target:
+    kind: Deployment
+- path: namespace_psa_patch.yaml
+  target:
+    kind: Namespace
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# F10 (Fable review): the default image is set one level up, in
+# config/default/kustomization.yaml, not here -- kustomize's `images`
+# transform matches by the image's *current* name at the point it runs, so
+# if this base already renamed "controller" to the published image, a
+# further override further up (e.g. the Makefile's temp overlay swapping in
+# a local :dev build) would have nothing named "controller" left to match.
+# Only one level may ever rename the "controller" placeholder.

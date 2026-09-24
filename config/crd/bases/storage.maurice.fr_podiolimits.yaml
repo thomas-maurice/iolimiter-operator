@@ -1,0 +1,389 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: podiolimits.storage.maurice.fr
+spec:
+  group: storage.maurice.fr
+  names:
+    kind: PodIOLimit
+    listKind: PodIOLimitList
+    plural: podiolimits
+    shortNames:
+    - pil
+    singular: podiolimit
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: The pod this internal object was compiled for. See IOLimiter to
+        change limits.
+      jsonPath: .spec.podName
+      name: Pod
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].reason
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - description: Node the pod is scheduled on; set by the controller, not meaningful
+        to edit.
+      jsonPath: .spec.nodeName
+      name: Node
+      priority: 1
+      type: string
+    - jsonPath: .metadata.labels['app\.kubernetes\.io/managed-by']
+      name: Managed-By
+      priority: 1
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          PodIOLimit is the Schema for the podiolimits API.
+
+          Internal: created and managed by the IOLimiter controller, one per
+          limited pod. Do not create or edit by hand; use IOLimiter. Its spec is
+          compiled by the controller from the pods, PVCs and IOLimiters it
+          matches, and its status is written by the node agent that enforces it
+          (SPEC.md D4). A ValidatingAdmissionPolicy (SPEC.md D27) enforces this at
+          admission time: only the controller's own ServiceAccount may create or
+          update it.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of PodIOLimit
+            properties:
+              nodeName:
+                description: |-
+                  nodeName is the node the pod is scheduled on, set by the controller.
+                  Informational/routing only: the agent DaemonSet pod on that node is
+                  the only one that reconciles this object (field-selected watch on
+                  this field). Not meant to be read or set by hand.
+                type: string
+              podName:
+                description: |-
+                  podName is the name of the pod this internal object was compiled
+                  for by the controller. Change limits via the IOLimiter that selects
+                  this pod, not by editing this field.
+                type: string
+              podUID:
+                description: |-
+                  podUID is the UID of the pod this object was compiled for. A
+                  recreated pod (same name, new UID) never reuses this object. Pod UIDs
+                  are always UUIDs on every supported cluster (D39): the spec-level CEL
+                  rule above rejects a malformed value at admission instead of the
+                  agent trusting an arbitrary string into a cgroup/filesystem path.
+                  (A +kubebuilder:validation:Pattern marker directly on this field
+                  doesn't work: controller-gen refuses to apply a pattern to
+                  types.UID's underlying schema type, "must apply pattern to a textual
+                  value, found type ''" -- CEL on the parent struct is the workaround.)
+                type: string
+              qosClass:
+                description: qosClass is the pod's QoS class, used to compute its
+                  cgroup path.
+                enum:
+                - Guaranteed
+                - Burstable
+                - BestEffort
+                type: string
+              volumes:
+                description: |-
+                  volumes lists the pod volumes to limit, already merged across every
+                  contributing IOLimiter (D2: per-field minimum).
+                items:
+                  description: PodVolumeLimit is one pod volume's resolved limit.
+                  properties:
+                    contributions:
+                      description: |-
+                        contributions lists each contributing IOLimiter's own limits for this
+                        volume (D36). limits and sources above are derived from this list:
+                        limits is the per-field minimum across every entry, sources is every
+                        entry's Source. An IOLimiter with an InvalidLimit issue for this
+                        volume reuses its own prior entry here rather than contributing
+                        nothing or loosening the effective limit (D35/D36: "an invalid limit
+                        freezes, it does not loosen" -- per-limiter, not whole-volume). A
+                        limiter that's deleted or no longer matches the pod simply has no
+                        entry.
+                      items:
+                        description: |-
+                          VolumeContribution is one IOLimiter's own contribution to a
+                          PodVolumeLimit (D36).
+                        properties:
+                          limits:
+                            description: |-
+                              limits is this limiter's own limits for the volume (not yet merged
+                              with any other contribution). Unset field = this limiter set no
+                              ceiling on that field.
+                            properties:
+                              readBPS:
+                                format: int64
+                                type: integer
+                              readIOPS:
+                                format: int64
+                                type: integer
+                              writeBPS:
+                                format: int64
+                                type: integer
+                              writeIOPS:
+                                format: int64
+                                type: integer
+                            type: object
+                          source:
+                            description: source is the contributing IOLimiter's name.
+                            type: string
+                        required:
+                        - limits
+                        - source
+                        type: object
+                      maxItems: 64
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - source
+                      x-kubernetes-list-type: map
+                    kubeletDirName:
+                      description: |-
+                        kubeletDirName is the directory kubelet mounts this volume under
+                        (pods/<uid>/volumes/<plugin>/<dir>): the PV name for PVC/ephemeral
+                        volumes, the pod volume name for inline CSI. Always a DNS-1123
+                        subdomain (D39): PersistentVolume names are DNS subdomains, and the
+                        inline-CSI case reuses the pod volume name, itself already
+                        DNS-1123-label-shaped (VolumeLimit.Name's own pattern, stricter than
+                        a subdomain).
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                    limits:
+                      description: |-
+                        limits are the per-field minimum (D2) across contributions. Unset
+                        field = unlimited (max). Derived from contributions; not itself a
+                        source of truth.
+                      properties:
+                        readBPS:
+                          format: int64
+                          type: integer
+                        readIOPS:
+                          format: int64
+                          type: integer
+                        writeBPS:
+                          format: int64
+                          type: integer
+                        writeIOPS:
+                          format: int64
+                          type: integer
+                      type: object
+                    name:
+                      description: name of the pod volume (pod.spec.volumes[].name).
+                      type: string
+                    sources:
+                      description: |-
+                        sources lists the contributing IOLimiter names, sorted. Derived from
+                        contributions; not itself a source of truth.
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                  required:
+                  - kubeletDirName
+                  - limits
+                  - name
+                  type: object
+                maxItems: 64
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            required:
+            - nodeName
+            - podName
+            - podUID
+            - qosClass
+            - volumes
+            type: object
+            x-kubernetes-validations:
+            - message: pod identity is immutable
+              rule: self.nodeName == oldSelf.nodeName && self.podName == oldSelf.podName
+                && self.podUID == oldSelf.podUID && self.qosClass == oldSelf.qosClass
+            - message: podUID must be a UUID
+              rule: self.podUID.matches('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+          status:
+            description: status defines the observed state of PodIOLimit
+            properties:
+              cgroupPath:
+                description: |-
+                  cgroupPath is the pod cgroup path relative to the cgroup2 root.
+                  Informational only.
+                type: string
+              conditions:
+                description: |-
+                  conditions represent the current state of the PodIOLimit resource.
+
+                  Ready reasons: Applied | Pending | Failed | Released | Unsupported
+                  (Unsupported: every listed volume resolved to Unsupported, so
+                  nothing was actually applied)
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              devices:
+                description: |-
+                  devices is the ownership record (D8): every device a rule may have
+                  been written for in this pod's cgroup. Entries are added before the
+                  kernel write.
+                items:
+                  description: OwnedDevice records a device this PodIOLimit owns a
+                    rule for.
+                  properties:
+                    device:
+                      description: device is the whole-disk "MAJ:MIN".
+                      type: string
+                    rule:
+                      description: rule is the four-key io.max rule ("rbps=... wbps=...
+                        riops=... wiops=...").
+                      type: string
+                    state:
+                      enum:
+                      - Pending
+                      - Applied
+                      type: string
+                  required:
+                  - device
+                  - rule
+                  - state
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - device
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: observedGeneration is the spec generation this status
+                  reflects.
+                format: int64
+                type: integer
+              volumes:
+                description: volumes reports the resolution/apply state of each spec.volumes[]
+                  entry.
+                items:
+                  description: VolumeStatus reports the resolution/apply state of
+                    one volume.
+                  properties:
+                    device:
+                      description: device is the whole-disk device throttled for this
+                        volume, if resolved.
+                      type: string
+                    message:
+                      type: string
+                    mountDevice:
+                      description: mountDevice is the device from mountinfo, when
+                        it was a partition of device.
+                      type: string
+                    name:
+                      description: name of the pod volume.
+                      type: string
+                    reason:
+                      description: |-
+                        reason is one of: CgroupNotFound | VolumeNotMounted | NoBlockDevice |
+                        SharedRootDevice | IOControllerDisabled | KernelRejected |
+                        KernelMismatch | SharedDevice | InvalidSpec (D39: podUID isn't a
+                        UUID -- the CRD pattern should already reject this at admission, this
+                        is defense in depth for an object that predates the pattern or was
+                        otherwise written some other way)
+                      type: string
+                    state:
+                      enum:
+                      - Applied
+                      - Pending
+                      - Unsupported
+                      - Failed
+                      type: string
+                  required:
+                  - name
+                  - state
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            type: object
+        required:
+        - spec
+        type: object
+    selectableFields:
+    - jsonPath: .spec.nodeName
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,14 @@
+# D14: the agent DaemonSet uses hostPath volumes, which the "baseline" and
+# "restricted" Pod Security Standards forbid. The namespace opts into
+# "privileged" so the (still non-privileged, capabilities-dropped) agent
+# pod is admitted. Applied here, not in config/manager/manager.yaml, so the
+# controller's own manifest stays agent-agnostic (C2 owns this file).
+- op: add
+  path: /metadata/labels/pod-security.kubernetes.io~1enforce
+  value: privileged
+- op: add
+  path: /metadata/labels/pod-security.kubernetes.io~1audit
+  value: privileged
+- op: add
+  path: /metadata/labels/pod-security.kubernetes.io~1warn
+  value: privileged

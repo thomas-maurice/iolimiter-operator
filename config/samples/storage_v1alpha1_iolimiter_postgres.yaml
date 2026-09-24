@@ -1,0 +1,24 @@
+# Caps a Postgres StatefulSet's data and WAL volumes. "data"/"wal" are pod
+# volume names (sts volumeClaimTemplates[].name), matched by every replica
+# regardless of its per-replica PVC name (SPEC.md D1).
+apiVersion: storage.maurice.fr/v1alpha1
+kind: IOLimiter
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/managed-by: kustomize
+  name: postgres-data
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  volumes:
+    - name: data
+      limits:
+        readBytesPerSecond: 20Mi
+        writeBytesPerSecond: 10Mi
+        readIOPS: 500
+        writeIOPS: 200
+    - name: wal
+      limits:
+        writeBytesPerSecond: 5Mi

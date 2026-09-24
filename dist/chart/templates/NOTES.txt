@@ -1,0 +1,25 @@
+Thank you for installing {{ .Chart.Name }}.
+
+Your release is named {{ .Release.Name }}.
+
+The controller and CRDs have been installed in namespace {{ .Release.Namespace }}.
+
+IMPORTANT: the agent DaemonSet's cgroup hostPath must match this node's
+layout, or every agent pod gets stuck ContainerCreating with no signal on
+the IOLimiter/PodIOLimit status (only `kubectl describe pod` shows it):
+
+  agent.cgroupHostSubtree = {{ .Values.agent.cgroupHostSubtree }}
+
+Typical systemd node (this chart's default): kubepods.slice
+kind: kubelet.slice/kubelet-kubepods.slice (see hack/kind-values.yaml)
+cgroupfs: kubepods, or kubelet/kubepods under kubelet.slice
+
+To verify the installation:
+
+  kubectl get pods -n {{ .Release.Namespace }}
+  kubectl get customresourcedefinitions
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }} -n {{ .Release.Namespace }}
+  $ helm get all {{ .Release.Name }} -n {{ .Release.Namespace }}

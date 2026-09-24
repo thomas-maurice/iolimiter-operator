@@ -1,0 +1,89 @@
+{{- if or (not (hasKey .Values.admissionPolicy "enabled")) (.Values.admissionPolicy.enabled) }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-write-restricted" "context" $) }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["storage.maurice.fr"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["podiolimits"]
+  validations:
+    - expression: >-
+        request.userInfo.username ==
+        'system:serviceaccount:{{ .Release.Namespace }}:{{ include "k8s-blkio-limiter.serviceAccountName" . }}' ||
+        (request.operation == 'UPDATE' && object.spec == oldObject.spec)
+      message: >-
+        podiolimits (the main resource) may only be created, or have its
+        spec changed, by the k8s-blkio-limiter controller service account; a
+        metadata-only update (e.g. stripping a stuck finalizer during
+        uninstall) is allowed from anyone RBAC permits (SPEC.md D27, D33).
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-write-restricted-binding" "context" $) }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  policyName: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-write-restricted" "context" $) }}
+  validationActions: ["Deny"]
+  matchResources: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-status-write-restricted" "context" $) }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["storage.maurice.fr"]
+        apiVersions: ["*"]
+        operations: ["UPDATE"]
+        resources: ["podiolimits/status"]
+  validations:
+    - expression: >-
+        request.userInfo.username ==
+        'system:serviceaccount:{{ .Release.Namespace }}:{{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent" "context" $) }}'
+      message: >-
+        podiolimits/status may only be updated by the k8s-blkio-limiter
+        agent service account (SPEC.md D27).
+    - expression: >-
+        has(request.userInfo.extra) &&
+        'authentication.kubernetes.io/node-name' in request.userInfo.extra &&
+        request.userInfo.extra['authentication.kubernetes.io/node-name'][0] == object.spec.nodeName
+      message: >-
+        podiolimits/status may only be updated by the agent running on the
+        PodIOLimit's own spec.nodeName (SPEC.md D27, D39, OQ2).
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-status-write-restricted-binding" "context" $) }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  policyName: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-status-write-restricted" "context" $) }}
+  validationActions: ["Deny"]
+  matchResources: {}
+{{- end }}

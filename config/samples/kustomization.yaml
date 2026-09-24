@@ -1,0 +1,8 @@
+## Append samples of your project ##
+resources:
+- storage_v1alpha1_iolimiter_postgres.yaml
+- storage_v1alpha1_iolimiter_baseline.yaml
+- storage_v1alpha1_iolimiter_strict.yaml
+# PodIOLimit is internal (controller-written spec, agent-written status,
+# SPEC.md §1/D4): no sample, users never hand-author one.
+# +kubebuilder:scaffold:manifestskustomizesamples

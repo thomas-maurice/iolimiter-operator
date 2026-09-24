@@ -1,0 +1,14 @@
+# Teaches kustomize's nameReference transformer that a
+# ValidatingAdmissionPolicyBinding's spec.policyName points at a
+# ValidatingAdmissionPolicy's metadata.name, mirroring config/crd's own
+# kustomizeconfig.yaml pattern for a field kustomize has no built-in
+# knowledge of. Without this, namePrefix would rename the policy but leave
+# policyName pointing at the un-prefixed name, and the binding would fail
+# to find its policy at apply time.
+nameReference:
+- kind: ValidatingAdmissionPolicy
+  group: admissionregistration.k8s.io
+  fieldSpecs:
+  - kind: ValidatingAdmissionPolicyBinding
+    group: admissionregistration.k8s.io
+    path: spec/policyName

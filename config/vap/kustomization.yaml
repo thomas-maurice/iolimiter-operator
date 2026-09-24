@@ -1,0 +1,14 @@
+# C7 hardening (SPEC.md D27): ValidatingAdmissionPolicy + binding pair for
+# the main podiolimits resource (controller-SA-only writes) and for the
+# podiolimits/status subresource (agent-SA-only, node-name-scoped writes).
+# Wired into config/default unconditionally: no cert-manager/webhook
+# dependency (CEL only, admissionregistration.k8s.io/v1 is GA), and the
+# project's minimum Kubernetes version is already 1.32+ (OQ2).
+resources:
+- podiolimit_write_policy.yaml
+- podiolimit_write_binding.yaml
+- podiolimit_status_policy.yaml
+- podiolimit_status_binding.yaml
+
+configurations:
+- kustomizeconfig.yaml

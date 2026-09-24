@@ -1,0 +1,23 @@
+# The second of two overlapping IOLimiters (see also
+# storage_v1alpha1_iolimiter_baseline.yaml). Pods labelled tier=batch also
+# match the namespace-wide baseline; per SPEC.md D2 the effective rule on
+# "scratch" is the per-field minimum of the two, so these pods end up at
+# 10Mi/s (this limiter), not 50Mi/s (the baseline) - a limiter can only
+# tighten, never loosen, another one's limit.
+apiVersion: storage.maurice.fr/v1alpha1
+kind: IOLimiter
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/managed-by: kustomize
+  name: batch-jobs-strict
+spec:
+  podSelector:
+    matchLabels:
+      tier: batch
+  volumes:
+    - name: scratch
+      limits:
+        readBytesPerSecond: 10Mi
+        writeBytesPerSecond: 10Mi
+        writeIOPS: 100

@@ -1,0 +1,96 @@
+# C7 hardening (SPEC.md D27): anyone with RBAC to create/update a
+# PodIOLimit can throttle (or un-throttle) any pod on any node by UID -- the
+# CRD schema has no way to express "only the controller may write this".
+# This ValidatingAdmissionPolicy closes that gap at admission time, on top
+# of (not instead of) RBAC (D17: the controller's own manager-role already
+# has no "update" verb on the main resource).
+#
+# D33 (fix, 2026-09-23): UPDATE is allowed when it's metadata-only
+# (object.spec == oldObject.spec), from anyone RBAC permits -- this is the
+# carve-out that lets an admin strip a stuck finalizer during uninstall
+# (README's Uninstall section) without a Helm pre-delete hook. CREATE and
+# any UPDATE that changes spec stay controller-SA-only.
+#
+# The controller SA's username is derived from the ServiceAccount object
+# itself via kustomize `replacements` in config/default/kustomization.yaml
+# (fix, Fable review F7): the expression below writes the namespace and SA
+# name as their own single-quoted string literals joined with `+` so each
+# one is a clean, independently addressable segment for a delimited
+# (delimiter: "'") replacement -- config/default's replacements target
+# index 3 (namespace) and index 7 (service account name) of this
+# expression string, counting quote-delimited segments left to right. If
+# you reformat this expression, recount the indices and check `kustomize
+# build config/default` (and again with `kustomize edit set namespace` to a
+# different namespace, per test/e2e's own proof) still resolves to the real
+# SA identity, not a leftover placeholder. Previously a literal
+# `system:serviceaccount:<ns>:<name>` string kept in sync by hand: correct
+# for the shipped default namespace, but silently wrong (denying the real
+# controller) the moment anyone installed into a different one.
+#
+# DELETE is deliberately NOT restricted (fix, SPEC.md D27 update): it
+# originally was, on the theory that a tenant deleting another tenant's
+# PodIOLimit forces the D9 release handshake and silently un-throttles a
+# pod. In practice that blocked far more than tenants: a cluster-admin
+# could not delete a stray PodIOLimit by hand ("forbidden:
+# ValidatingAdmissionPolicy 'podiolimit-write-restricted'"), and -- worse --
+# it also blocked Kubernetes' own generic garbage collector
+# (system:serviceaccount:kube-system:generic-garbage-collector) from
+# running ownerRef cleanup on pod deletion, and the namespace controller's
+# own sweep on namespace deletion, which could leave a namespace stuck
+# Terminating for as long as the controller was down. RBAC already gates
+# who may delete a PodIOLimit (no tenant role grants delete on
+# podiolimits, see SPEC.md §7), and the D9 finalizer still makes the agent
+# reset the kernel rule before the object actually goes away regardless of
+# who issued the delete -- so a tenant delete was never actually a bypass
+# of the reset, only of the *timing* being the controller's choice. The
+# extra admission-time restriction bought nothing RBAC + the finalizer
+# don't already cover, at the cost of breaking two things Kubernetes itself
+# needs to do. CREATE/UPDATE stay controller-SA-only: those are the
+# operations that can forge or alter a throttling rule outright.
+#
+# apiVersions is "*", not pinned to ["v1alpha1"]: pinning silently stops
+# protecting the resource the moment a v1beta1/v1 conversion ships and
+# nobody remembers to update this file (an easy miss: nothing else fails).
+# The apiserver expands "*" to every version currently served for this
+# resource, same semantics as an admission webhook's rule.apiVersions
+# (verified: admissionregistration.k8s.io/v1's NamedRuleWithOperations,
+# which ValidatingAdmissionPolicy's matchConstraints reuses, documents "*"
+# to match all API versions). test/e2e/hardening's
+# TestVAPPolicies_MatchAllServedVersions asserts both VAPs actually list
+# every version storage.maurice.fr/PodIOLimit currently serves, so an
+# accidental new version that somehow bypasses the wildcard (e.g. a
+# hand-edit reverting to a pinned list) fails loudly instead of silently.
+#
+# The controller SA's username below (system:serviceaccount:<ns>:<name>) is
+# a literal string, not a kustomize var: kustomize's built-in nameReference
+# transformer only rewrites known reference fields (e.g. RoleBinding
+# subjects), not arbitrary CEL expression text. It must be kept in sync by
+# hand with config/default's namespace ("k8s-blkio-limiter-system") and
+# config/rbac/service_account.yaml + namePrefix ("k8s-blkio-limiter-" +
+# "controller-manager"). test/e2e/hardening asserts this string against the
+# live ServiceAccount so drift fails loudly instead of silently.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: podiolimit-write-restricted
+  labels:
+    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["storage.maurice.fr"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["podiolimits"]
+  validations:
+    - expression: >-
+        request.userInfo.username == 'system:serviceaccount:' +
+        'k8s-blkio-limiter-system' + ':' + 'k8s-blkio-limiter-controller-manager'
+        || (request.operation == 'UPDATE' && object.spec == oldObject.spec)
+      message: >-
+        podiolimits (the main resource) may only be created, or have its
+        spec changed, by the k8s-blkio-limiter controller service account; a
+        metadata-only update (e.g. stripping a stuck finalizer during
+        uninstall) is allowed from anyone RBAC permits (SPEC.md D27, D33).

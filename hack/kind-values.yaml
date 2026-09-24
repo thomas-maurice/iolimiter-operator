@@ -1,0 +1,16 @@
+# F2 (Fable review): the chart's default agent.cgroupHostSubtree is now
+# kubepods.slice (the common systemd layout), not kind's own
+# kubelet.slice/kubelet-kubepods.slice wrapper (hack/kind-config.yaml's
+# cgroupRoot: /kubelet) -- a kind-tuned default broke every non-kind
+# install. Pass this file with `-f` whenever installing the Helm chart onto
+# the pinned kind cluster (the kustomize path, `make deploy`/`deploy-kind`,
+# gets the equivalent override from hack/kind-overlay instead):
+#
+#   helm upgrade --install k8s-blkio-limiter dist/chart \
+#     --namespace k8s-blkio-limiter-system --create-namespace \
+#     -f hack/kind-values.yaml
+#
+# (`make helm-deploy` already threads HELM_EXTRA_ARGS through, so
+# `HELM_EXTRA_ARGS="-f hack/kind-values.yaml" make helm-deploy` works too.)
+agent:
+  cgroupHostSubtree: kubelet.slice/kubelet-kubepods.slice

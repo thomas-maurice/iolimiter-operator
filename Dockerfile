@@ -5,7 +5,11 @@
 # Resolved via `docker buildx imagetools inspect golang:1.26`; re-resolve
 # and update both the digest and the tag comment together when bumping.
 ARG BASE_IMAGE=golang:1.26@sha256:6c2a5538f964f1c82f97ad14988bf05de100d922d159d0e398b54c7b0ca0c6c9
-FROM ${BASE_IMAGE} AS builder
+# --platform=$BUILDPLATFORM: the builder always runs natively on the build
+# host and cross-compiles to TARGETOS/TARGETARCH (CGO_ENABLED=0). Without it
+# a multi-arch buildx build runs the arm64 builder under QEMU emulation,
+# which made `go build -a` take >20 minutes in CI.
+FROM --platform=$BUILDPLATFORM ${BASE_IMAGE} AS builder
 ARG TARGETOS
 ARG TARGETARCH
 

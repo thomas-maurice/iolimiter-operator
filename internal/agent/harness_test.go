@@ -37,8 +37,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/cgroup"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
+	"github.com/thomas-maurice/iolimiter-operator/internal/cgroup"
 )
 
 func testScheme(t *testing.T) *runtime.Scheme {

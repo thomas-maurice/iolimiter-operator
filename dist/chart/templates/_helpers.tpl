@@ -1,7 +1,7 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "k8s-blkio-limiter.name" -}}
+{{- define "iolimiter-operator.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
@@ -10,7 +10,7 @@ Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.
 */}}
-{{- define "k8s-blkio-limiter.fullname" -}}
+{{- define "iolimiter-operator.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -27,7 +27,7 @@ If release name contains chart name it will be used as a full name.
 Namespace for generated references.
 Always uses the Helm release namespace.
 */}}
-{{- define "k8s-blkio-limiter.namespaceName" -}}
+{{- define "iolimiter-operator.namespaceName" -}}
 {{- .Release.Namespace }}
 {{- end }}
 
@@ -38,8 +38,8 @@ Takes a dict with:
   - .context: Template context (root context with .Values, .Release, etc.)
 Dynamically calculates safe truncation to ensure total name length <= 63 chars.
 */}}
-{{- define "k8s-blkio-limiter.resourceName" -}}
-{{- $fullname := include "k8s-blkio-limiter.fullname" .context }}
+{{- define "iolimiter-operator.resourceName" -}}
+{{- $fullname := include "iolimiter-operator.fullname" .context }}
 {{- $suffix := .suffix }}
 {{- $maxLen := sub 62 (len $suffix) | int }}
 {{- if gt (len $fullname) $maxLen }}
@@ -54,9 +54,9 @@ ServiceAccount name to use.
 When enabled, use the chart's ServiceAccount name.
 When disabled, serviceAccount.name must be set; use "default" to pick the namespace default ServiceAccount.
 */}}
-{{- define "k8s-blkio-limiter.serviceAccountName" -}}
+{{- define "iolimiter-operator.serviceAccountName" -}}
 {{- if .Values.serviceAccount.enabled }}
-{{- include "k8s-blkio-limiter.resourceName" (dict "suffix" "controller-manager" "context" .) }}
+{{- include "iolimiter-operator.resourceName" (dict "suffix" "controller-manager" "context" .) }}
 {{- else }}
 {{- required "serviceAccount.name is required when serviceAccount.enabled=false (set name: default explicitly to use the namespace default ServiceAccount)" .Values.serviceAccount.name }}
 {{- end }}

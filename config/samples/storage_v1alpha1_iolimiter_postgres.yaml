@@ -5,7 +5,7 @@ apiVersion: storage.maurice.fr/v1alpha1
 kind: IOLimiter
 metadata:
   labels:
-    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/name: iolimiter-operator
     app.kubernetes.io/managed-by: kustomize
   name: postgres-data
 spec:

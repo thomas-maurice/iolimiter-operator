@@ -39,9 +39,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/blockdev"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/cgroup"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
+	"github.com/thomas-maurice/iolimiter-operator/internal/blockdev"
+	"github.com/thomas-maurice/iolimiter-operator/internal/cgroup"
 )
 
 // sysRoot is where the container's own sysfs is mounted (D14: block
@@ -239,7 +239,7 @@ func Main(ctx context.Context, args []string) int {
 	reconciler := &PodIOLimitReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorder("k8s-blkio-limiter-agent"),
+		Recorder:        mgr.GetEventRecorder("iolimiter-operator-agent"),
 		NodeName:        cfg.nodeName,
 		Layout:          layout,
 		CgroupRoot:      cfg.cgroupRoot,

@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
 )
 
 // TestValidateSelectorBounds_D37 proves each of D37's bounds is actually

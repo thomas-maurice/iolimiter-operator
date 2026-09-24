@@ -4,11 +4,11 @@ kind: Service
 metadata:
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     control-plane: controller-manager
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "controller-manager-metrics-service" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "controller-manager-metrics-service" "context" $) }}
   namespace: {{ .Release.Namespace }}
 spec:
   ports:
@@ -17,6 +17,6 @@ spec:
     protocol: TCP
     targetPort: {{ .Values.metrics.port }}
   selector:
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     control-plane: controller-manager
 {{- end }}

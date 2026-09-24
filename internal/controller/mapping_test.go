@@ -26,7 +26,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
 )
 
 func reqFor(ns, name string) ctrl.Request { return reconcileRequestFor(ns, name) }

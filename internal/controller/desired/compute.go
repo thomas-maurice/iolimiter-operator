@@ -29,7 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
 )
 
 // Issue reasons, per SPEC.md §4.2/§6.3. VolumeNotFound, UnsupportedVolumeType

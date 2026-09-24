@@ -38,8 +38,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/iomax"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
+	"github.com/thomas-maurice/iolimiter-operator/internal/iomax"
 )
 
 func testGetCounterValue(t *testing.T, c prometheus.Counter) float64 {

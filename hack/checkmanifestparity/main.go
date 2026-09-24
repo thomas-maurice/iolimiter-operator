@@ -65,7 +65,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("kustomize build config/default: %w", err)
 	}
-	helmOut, err := runCmd(helmBin, "template", "k8s-blkio-limiter", chartDir, "--namespace", "k8s-blkio-limiter-system")
+	helmOut, err := runCmd(helmBin, "template", "iolimiter-operator", chartDir, "--namespace", "iolimiter-operator-system")
 	if err != nil {
 		return fmt.Errorf("helm template %s: %w", chartDir, err)
 	}

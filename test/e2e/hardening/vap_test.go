@@ -38,8 +38,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
-	"github.com/thomas-maurice/k8s-blkio-limiter/test/e2e/harness"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
+	"github.com/thomas-maurice/iolimiter-operator/test/e2e/harness"
 )
 
 // controllerSAUsername/agentSAUsername fetch the real, live ServiceAccounts
@@ -294,7 +294,7 @@ func TestVAPPolicies_MatchAllServedVersions(t *testing.T) {
 	}
 	require.NotEmpty(t, served)
 
-	for _, name := range []string{"k8s-blkio-limiter-podiolimit-write-restricted", "k8s-blkio-limiter-podiolimit-status-write-restricted"} {
+	for _, name := range []string{"iolimiter-operator-podiolimit-write-restricted", "iolimiter-operator-podiolimit-status-write-restricted"} {
 		var vap admissionregistrationv1.ValidatingAdmissionPolicy
 		require.NoError(t, harness.K8sClient.Get(ctx, types.NamespacedName{Name: name}, &vap))
 		require.NotEmpty(t, vap.Spec.MatchConstraints.ResourceRules)

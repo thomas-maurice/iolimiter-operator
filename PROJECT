@@ -10,8 +10,8 @@ plugins:
   helm.kubebuilder.io/v2-alpha:
     manifests: dist/install.yaml
     output: dist
-projectName: k8s-blkio-limiter
-repo: github.com/thomas-maurice/k8s-blkio-limiter
+projectName: iolimiter-operator
+repo: github.com/thomas-maurice/iolimiter-operator
 resources:
 - api:
     crdVersion: v1
@@ -20,7 +20,7 @@ resources:
   domain: maurice.fr
   group: storage
   kind: IOLimiter
-  path: github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1
+  path: github.com/thomas-maurice/iolimiter-operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -28,7 +28,7 @@ resources:
   domain: maurice.fr
   group: storage
   kind: PodIOLimit
-  path: github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1
+  path: github.com/thomas-maurice/iolimiter-operator/api/v1alpha1
   version: v1alpha1
 - controller: true
   core: true

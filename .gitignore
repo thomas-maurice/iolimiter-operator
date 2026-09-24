@@ -1,4 +1,4 @@
-/k8s-blkio-limiter
+/iolimiter-operator
 bin/
 # make build-installer output; dist/chart (the Helm chart) is checked in so
 # CI can `helm lint`/`helm package` it without needing kubebuilder installed.

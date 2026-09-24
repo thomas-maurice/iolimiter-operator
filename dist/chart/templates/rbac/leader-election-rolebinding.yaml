@@ -3,16 +3,16 @@ kind: RoleBinding
 metadata:
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "leader-election-rolebinding" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "leader-election-rolebinding" "context" $) }}
   namespace: {{ .Release.Namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "leader-election-role" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "leader-election-role" "context" $) }}
 subjects:
 - kind: ServiceAccount
-  name: {{ include "k8s-blkio-limiter.serviceAccountName" . }}
+  name: {{ include "iolimiter-operator.serviceAccountName" . }}
   namespace: {{ .Release.Namespace }}

@@ -18,7 +18,7 @@ resources:
 patches:
 - target:
     kind: DaemonSet
-    name: k8s-blkio-limiter-agent
+    name: iolimiter-operator-agent
   patch: |-
     - op: replace
       path: /spec/template/spec/containers/0/volumeMounts/0/mountPath

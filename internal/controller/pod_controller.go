@@ -36,8 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/controller/desired"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
+	"github.com/thomas-maurice/iolimiter-operator/internal/controller/desired"
 )
 
 // pilRequeueInterval paces the wait for a Terminating PodIOLimit still
@@ -56,7 +56,7 @@ const requeueSoon = 100 * time.Millisecond
 const managedByLabel = "app.kubernetes.io/managed-by"
 
 // managedByValue is managedByLabel's value.
-const managedByValue = "k8s-blkio-limiter"
+const managedByValue = "iolimiter-operator"
 
 // PodReconciler reconciles a Pod object into at most one PodIOLimit,
 // implementing SPEC.md §6.2's PodReconciler algorithm.

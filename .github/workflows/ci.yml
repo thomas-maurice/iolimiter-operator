@@ -111,9 +111,9 @@ jobs:
           echo "=== pods (all namespaces) ==="
           $KCTL get pods -A -o wide
           echo "=== agent logs (both DaemonSet pods) ==="
-          $KCTL logs -n k8s-blkio-limiter-system -l control-plane=agent --prefix --tail=500
+          $KCTL logs -n iolimiter-operator-system -l control-plane=agent --prefix --tail=500
           echo "=== controller logs ==="
-          $KCTL logs -n k8s-blkio-limiter-system deploy/k8s-blkio-limiter-controller-manager --tail=200
+          $KCTL logs -n iolimiter-operator-system deploy/iolimiter-operator-controller-manager --tail=200
           echo "=== podiolimits (all namespaces) ==="
           $KCTL get podiolimits -A -o yaml
           echo "=== events (all namespaces) ==="
@@ -234,4 +234,4 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Push chart
-        run: helm push k8s-blkio-limiter-${{ steps.version.outputs.version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+        run: helm push iolimiter-operator-${{ steps.version.outputs.version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts

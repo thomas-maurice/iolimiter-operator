@@ -40,23 +40,23 @@ kind: DaemonSet
 metadata:
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     control-plane: agent
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "agent" "context" $) }}
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+      app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
       control-plane: agent
   template:
     metadata:
       annotations:
         kubectl.kubernetes.io/default-container: agent
       labels:
-        app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+        app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
         helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/managed-by: {{ .Release.Service }}
@@ -150,7 +150,7 @@ spec:
         {{- else }}
         {}
         {{- end }}
-      serviceAccountName: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent" "context" $) }}
+      serviceAccountName: {{ include "iolimiter-operator.resourceName" (dict "suffix" "agent" "context" $) }}
       {{- if and (hasKey .Values.agent "terminationGracePeriodSeconds") (ne .Values.agent.terminationGracePeriodSeconds nil) }}
       terminationGracePeriodSeconds: {{ .Values.agent.terminationGracePeriodSeconds }}
       {{- end }}
@@ -190,10 +190,10 @@ kind: ServiceAccount
 metadata:
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "agent" "context" $) }}
   namespace: {{ .Release.Namespace }}
 {{- end }}
 EOF
@@ -229,10 +229,10 @@ cat > "$CHART_DIR/templates/rbac/podiolimit-admission-policy.yaml" <<'EOF'
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-write-restricted" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "podiolimit-write-restricted" "context" $) }}
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
@@ -246,35 +246,35 @@ spec:
   validations:
     - expression: >-
         request.userInfo.username ==
-        'system:serviceaccount:{{ .Release.Namespace }}:{{ include "k8s-blkio-limiter.serviceAccountName" . }}' ||
+        'system:serviceaccount:{{ .Release.Namespace }}:{{ include "iolimiter-operator.serviceAccountName" . }}' ||
         (request.operation == 'UPDATE' && object.spec == oldObject.spec)
       message: >-
         podiolimits (the main resource) may only be created, or have its
-        spec changed, by the k8s-blkio-limiter controller service account; a
+        spec changed, by the iolimiter-operator controller service account; a
         metadata-only update (e.g. stripping a stuck finalizer during
         uninstall) is allowed from anyone RBAC permits (SPEC.md D27, D33).
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-write-restricted-binding" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "podiolimit-write-restricted-binding" "context" $) }}
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
-  policyName: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-write-restricted" "context" $) }}
+  policyName: {{ include "iolimiter-operator.resourceName" (dict "suffix" "podiolimit-write-restricted" "context" $) }}
   validationActions: ["Deny"]
   matchResources: {}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-status-write-restricted" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "podiolimit-status-write-restricted" "context" $) }}
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
@@ -288,9 +288,9 @@ spec:
   validations:
     - expression: >-
         request.userInfo.username ==
-        'system:serviceaccount:{{ .Release.Namespace }}:{{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent" "context" $) }}'
+        'system:serviceaccount:{{ .Release.Namespace }}:{{ include "iolimiter-operator.resourceName" (dict "suffix" "agent" "context" $) }}'
       message: >-
-        podiolimits/status may only be updated by the k8s-blkio-limiter
+        podiolimits/status may only be updated by the iolimiter-operator
         agent service account (SPEC.md D27).
     - expression: >-
         has(request.userInfo.extra) &&
@@ -303,14 +303,14 @@ spec:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-status-write-restricted-binding" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "podiolimit-status-write-restricted-binding" "context" $) }}
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
-  policyName: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "podiolimit-status-write-restricted" "context" $) }}
+  policyName: {{ include "iolimiter-operator.resourceName" (dict "suffix" "podiolimit-status-write-restricted" "context" $) }}
   validationActions: ["Deny"]
   matchResources: {}
 {{- end }}
@@ -343,7 +343,7 @@ metadata:
   name: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     pod-security.kubernetes.io/enforce: privileged

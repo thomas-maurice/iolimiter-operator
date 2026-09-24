@@ -27,7 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/thomas-maurice/k8s-blkio-limiter/test/e2e/harness"
+	"github.com/thomas-maurice/iolimiter-operator/test/e2e/harness"
 )
 
 // TestAgentDaemonSetIsNotPrivileged asserts D14 directly on the live,

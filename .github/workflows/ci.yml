@@ -1,0 +1,237 @@
+name: ci
+
+# Pipeline:
+#   - PRs:            unit (lint+test+build+helm-lint) -> e2e (builds the image, no publish)
+#   - push to master: unit -> e2e -> publish multi-arch image `latest` + `sha-<short>`
+#   - tag v*:         unit -> publish image tagged with the git tag itself (e.g. `v0.1.0`)
+#                     plus semver aliases (`0.1.0`, `0.1`) -> push the Helm chart.
+#                     A tag ALWAYS produces an image once unit passes: e2e still runs
+#                     on tags, but a flaky e2e must not leave a release without an image.
+#
+# Every `uses:` below is pinned to a full commit SHA with a `# vX.Y.Z`
+# comment (D39, security review): a moving tag on a third-party action is a
+# supply-chain foothold into a workflow that already holds
+# `packages: write`/`id-token: write` in the publish job. .github/dependabot.yml
+# opens PRs to bump the pin (and the comment) on a new release; it does not
+# auto-merge.
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Cancel superseded PR runs; never cancel a master/tag run mid-publish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Matches the Makefile's KIND_CLUSTER default (hack/kind-config.yaml). The
+  # e2e job's diagnostics step reads this instead of a hardcoded cluster name.
+  KIND_CLUSTER: blkio-limiter
+
+jobs:
+  # Lint + unit/envtest tests + build. Fast gate before e2e.
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Lint
+        run: make lint
+
+      - name: Unit + envtest
+        run: make test
+
+      - name: Build
+        run: make build
+
+      - name: Install helm
+        uses: Azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.21.3
+
+      - name: Lint Helm chart
+        run: make helm-lint
+
+      - name: Manifest parity (kustomize agent DaemonSet vs Helm chart)
+        run: make check-manifest-parity
+
+  # End-to-end suite against a real pinned kind cluster (C3 SPEC.md §10/§11):
+  # agent-only, hand-crafted PodIOLimits, real cgroups, real loop devices.
+  e2e:
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Pinned per .tool-versions. The Makefile creates the cluster itself
+      # (pinned node image, see hack/kind-config.yaml). Verified against the
+      # official kind-linux-amd64.sha256sum for this release (D39): a
+      # compromised download host or MITM producing a different binary
+      # fails the build loudly instead of silently running untrusted code
+      # with the runner's own token permissions.
+      - name: Install kind
+        run: |
+          curl -fsSLo kind-linux-amd64 https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+          echo "50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54  kind-linux-amd64" | sha256sum -c -
+          sudo install -m 0755 kind-linux-amd64 /usr/local/bin/kind
+          kind version
+
+      # Cluster + loop devices + storage class + busybox image, build/load/deploy.
+      - name: Cluster + e2e fixtures + deploy
+        run: make e2e-setup
+
+      - name: Run e2e suite
+        run: make e2e
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          set +e
+          KCTL="kubectl --context kind-${KIND_CLUSTER}"
+          echo "=== pods (all namespaces) ==="
+          $KCTL get pods -A -o wide
+          echo "=== agent logs (both DaemonSet pods) ==="
+          $KCTL logs -n k8s-blkio-limiter-system -l control-plane=agent --prefix --tail=500
+          echo "=== controller logs ==="
+          $KCTL logs -n k8s-blkio-limiter-system deploy/k8s-blkio-limiter-controller-manager --tail=200
+          echo "=== podiolimits (all namespaces) ==="
+          $KCTL get podiolimits -A -o yaml
+          echo "=== events (all namespaces) ==="
+          $KCTL get events -A --sort-by=.lastTimestamp | tail -80
+          echo "=== worker node io.max under every pod cgroup ==="
+          docker exec "${KIND_CLUSTER}-worker" sh -c \
+            'find /sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice -maxdepth 3 -name io.max -exec sh -c "echo == {} ==; cat {}" \;' \
+            || true
+
+  # Build and push the manager image to GHCR. Never on PRs.
+  #   - master: only after unit + e2e pass.
+  #   - tags:   as soon as unit passes, whatever e2e does (a tag always gets an image).
+  publish:
+    needs: [unit, e2e]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      needs.unit.result == 'success' &&
+      (startsWith(github.ref, 'refs/tags/v') ||
+       (github.ref == 'refs/heads/master' && needs.e2e.result == 'success'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      # cosign keyless signing (D39): needed only in this job, only for the
+      # OIDC token exchanged with Fulcio/Rekor at sign time - never for
+      # anything else in the pipeline.
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Image metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short,enable=${{ github.ref == 'refs/heads/master' }}
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+
+      # Keyless signing (D39): signs the digest produced by the build step
+      # above (the same digest for every tag in steps.meta.outputs.tags,
+      # since they're all pushed from one multi-arch manifest list), not a
+      # tag - tags are mutable, digests aren't. No key material to manage:
+      # the identity is Fulcio's short-lived cert off this job's own GitHub
+      # OIDC token, transparency logged to Rekor.
+      - name: Sign image digest with cosign (keyless)
+        run: |
+          cosign sign --yes "ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}"
+
+  # Package and push the Helm chart to GHCR (OCI) - only on version tags,
+  # once the image for that tag has been published.
+  chart:
+    needs: publish
+    if: always() && needs.publish.result == 'success' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install helm
+        uses: Azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.21.3
+
+      # dist/chart is checked in, generated by the kubebuilder helm/v2-alpha
+      # plugin (`make helm-chart`). manager.image.tag is unset in
+      # values.yaml, so the image tag defaults to Chart.appVersion: setting
+      # appVersion to the release version (== the semver image tag published
+      # above) is enough.
+      - name: Set chart version + image tag from the git tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          sed -i "s/^version:.*/version: $version/" dist/chart/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"$version\"/" dist/chart/Chart.yaml
+
+      - name: Package chart
+        run: helm package dist/chart --destination .
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push chart
+        run: helm push k8s-blkio-limiter-${{ steps.version.outputs.version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts

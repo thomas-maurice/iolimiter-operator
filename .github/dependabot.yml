@@ -1,0 +1,20 @@
+version: 2
+
+# D39 (supply chain hardening): keeps the pinned-by-SHA GitHub Actions,
+# go.mod and the Dockerfile's base image up to date via PRs. None of these
+# auto-merge - `make verify`/CI still gate every bump like any other change.
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly

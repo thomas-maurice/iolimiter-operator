@@ -1,12 +1,11 @@
 /k8s-blkio-limiter
 bin/
-dist/
+# make build-installer output; dist/chart (the Helm chart) is checked in so
+# CI can `helm lint`/`helm package` it without needing kubebuilder installed.
+/dist/install.yaml
 .claude/
 .ideas/
 CLAUDE.md
-TEST_REPORT.md
-dev/test-longhorn.yaml
-dev/test-sts.yaml
 .vscode/
 .idea/
 *.swp
@@ -16,3 +15,17 @@ dev/test-sts.yaml
 coverage.out
 *.coverprofile
 doc/
+
+# kubebuilder scaffold (go.kubebuilder.io/v4)
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+Dockerfile.cross
+*.test
+*.out
+go.work
+!vendor/**/zz_generated.*
+*.kubeconfig
+cover.out

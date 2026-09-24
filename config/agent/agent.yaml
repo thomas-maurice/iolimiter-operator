@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: agent
+  namespace: system
+  labels:
+    control-plane: agent
+    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      control-plane: agent
+      app.kubernetes.io/name: k8s-blkio-limiter
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 10%
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: agent
+      labels:
+        control-plane: agent
+        app.kubernetes.io/name: k8s-blkio-limiter
+    spec:
+      # D14: not privileged. No hostPID, no hostNetwork.
+      securityContext:
+        runAsUser: 0
+        runAsNonRoot: false
+        seccompProfile:
+          type: RuntimeDefault
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: agent
+          image: controller:latest
+          command:
+            - /manager
+          args:
+            - agent
+            - --health-probe-bind-address=:8081
+            - --metrics-bind-address=:8443
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - containerPort: 8081
+              name: health
+              protocol: TCP
+            - containerPort: 8443
+              name: https
+              protocol: TCP
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - "ALL"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            # C7 (SPEC.md D28): only the kubepods subtree is bind-mounted,
+            # not the whole cgroup2 tree, so a compromised agent can't reach
+            # system.slice/kubelet.service (memory.max, cgroup.freeze,
+            # cgroup.procs there would be a node-wide DoS). The container
+            # path below mirrors the host path 1:1 under /host/cgroup, so
+            # --cgroup-root=/host/cgroup (the default, unchanged) still
+            # finds it via D6's normal candidate search -- nothing else
+            # exists under /host/cgroup for it to find. This default path
+            # (kubepods.slice) is the common systemd layout. kind's own
+            # layout (kubelet.slice/kubelet-kubepods.slice, hack/
+            # kind-config.yaml's cgroupRoot: /kubelet) is applied as an
+            # explicit override, hack/kind-overlay, used by `make
+            # deploy-kind` -- not the default here, since a default tuned to
+            # kind broke every non-kind install (Fable review F2). For a
+            # cgroupfs node (no systemd), patch this mountPath's and the
+            # volumes.cgroup.hostPath.path's suffix to kubepods or
+            # kubelet/kubepods (see README).
+            - name: cgroup
+              mountPath: /host/cgroup/kubepods.slice
+            - name: proc
+              # F1 (Fable review): a Directory-type /proc bind mount lets a
+              # uid-0 process jump through /host/proc/1/root (a magic
+              # symlink to host PID 1's own root, i.e. the host's real
+              # rootfs) with only a same-uid ptrace check -- no capability,
+              # no privileged, no hostPID needed. Mounting only the single
+              # file the agent ever reads closes that: proc_pid_mountinfo()
+              # is gated on the mount namespace existing, not ptrace, and a
+              # File-type hostPath has no /1/root (or any other PID) to
+              # jump through at all. --proc-root's default (/host/proc)
+              # composes to exactly this path (<proc-root>/1/mountinfo), so
+              # no agent flag change is needed.
+              mountPath: /host/proc/1/mountinfo
+              readOnly: true
+      volumes:
+        # D14: not under /sys, so AppArmor's "deny /sys/fs/cg..." rules
+        # don't match. D28: narrowed to the kubepods subtree only (see the
+        # volumeMounts comment above for the exact path and how to retarget
+        # it for a non-kind systemd node).
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup/kubepods.slice
+            type: Directory
+        - name: proc
+          # F1: single file, not the whole host /proc directory (see the
+          # volumeMounts comment above).
+          hostPath:
+            path: /proc/1/mountinfo
+            type: File
+      serviceAccountName: agent
+      terminationGracePeriodSeconds: 10

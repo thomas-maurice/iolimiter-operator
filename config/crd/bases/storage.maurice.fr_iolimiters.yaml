@@ -1,0 +1,315 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: iolimiters.storage.maurice.fr
+spec:
+  group: storage.maurice.fr
+  names:
+    kind: IOLimiter
+    listKind: IOLimiterList
+    plural: iolimiters
+    shortNames:
+    - iol
+    singular: iolimiter
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.matchedPods
+      name: Matched
+      type: integer
+    - jsonPath: .status.appliedPods
+      name: Applied
+      type: integer
+    - jsonPath: .status.failedPods
+      name: Failed
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - description: 'Selected pods that have none of the listed volumes (D38): the
+        limiter is not enforcing anything on them.'
+      jsonPath: .status.selectedPodsWithoutVolumes
+      name: WithoutVolumes
+      priority: 1
+      type: integer
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: IOLimiter is the Schema for the iolimiters API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of IOLimiter
+            properties:
+              podSelector:
+                description: |-
+                  podSelector selects pods in this namespace. {} selects every pod.
+                  Bounded controller-side, not by CEL (D37, security review: a tenant
+                  with IOLimiter create could otherwise OOM/CPU-starve the
+                  cluster-wide controller by parsing an enormous selector on every pod
+                  event): at most 16 matchExpressions, each with at most 64 values, at
+                  most 16 matchLabels, and every key/value capped at 63 characters (the
+                  same bound Kubernetes itself enforces on label keys/values). CEL was
+                  tried first and measured against the apiserver's cost budget in
+                  envtest (TestIOLimiter_CEL_PodSelectorBounds_ExceedsCostBudget_Envtest):
+                  LabelSelectorRequirement's key/values have no maxLength the schema
+                  can declare (it's the upstream metav1 type, no controller-gen marker
+                  applies to it), so the cost estimator assumes unbounded strings and
+                  rejects the rule set at "more than 100x" the budget -- worse than the
+                  single quantity() call that was already too expensive for
+                  IOLimits (see that field's own deviation note). A selector that
+                  exceeds these bounds is reported as InvalidSelector on the
+                  IOLimiter's status and contributes nothing (matches no pods), mirroring
+                  how InvalidLimit is handled per-field.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              volumes:
+                description: |-
+                  volumes lists the pod volumes (pod.spec.volumes[].name) this limiter
+                  applies to, and the limits for each.
+                items:
+                  description: |-
+                    VolumeLimit names a pod volume and the IO limits to apply to the
+                    whole-disk device backing it.
+                  properties:
+                    limits:
+                      description: limits caps the pod's IO on the device backing
+                        this volume.
+                      properties:
+                        readBytesPerSecond:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: |-
+                            readBytesPerSecond caps read bandwidth on the device. Should be a
+                            whole number of bytes between 1Ki and 1Pi; the range/integer check is
+                            enforced controller-side, not by CEL (see SPEC.md C0 deviation note:
+                            a quantity()/isQuantity() CEL call on this field always exceeds the
+                            apiserver's CEL cost budget once volumes[] has MaxItems=16).
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        readIOPS:
+                          description: |-
+                            readIOPS caps read IOPS on the device. Values <= 1 are ignored by the
+                            kernel (tg_set_limit), so the minimum accepted here is 2.
+                          format: int64
+                          maximum: 4294967295
+                          minimum: 2
+                          type: integer
+                        writeBytesPerSecond:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: |-
+                            writeBytesPerSecond caps write bandwidth on the device. Should be a
+                            whole number of bytes between 1Ki and 1Pi; the range/integer check is
+                            enforced controller-side, not by CEL (see SPEC.md C0 deviation note:
+                            a quantity()/isQuantity() CEL call on this field always exceeds the
+                            apiserver's CEL cost budget once volumes[] has MaxItems=16).
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        writeIOPS:
+                          description: |-
+                            writeIOPS caps write IOPS on the device. Values <= 1 are ignored by
+                            the kernel (tg_set_limit), so the minimum accepted here is 2.
+                          format: int64
+                          maximum: 4294967295
+                          minimum: 2
+                          type: integer
+                      type: object
+                      x-kubernetes-validations:
+                      - message: at least one limit must be set
+                        rule: has(self.readBytesPerSecond) || has(self.writeBytesPerSecond)
+                          || has(self.readIOPS) || has(self.writeIOPS)
+                    name:
+                      description: name of the pod volume (pod.spec.volumes[].name).
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                  required:
+                  - limits
+                  - name
+                  type: object
+                maxItems: 16
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            required:
+            - podSelector
+            - volumes
+            type: object
+          status:
+            description: status defines the observed state of IOLimiter
+            properties:
+              appliedPods:
+                description: appliedPods is the count of matched pods with every listed
+                  volume Applied.
+                format: int32
+                type: integer
+              conditions:
+                description: |-
+                  conditions represent the current state of the IOLimiter resource.
+
+                  Ready: True/AllApplied | True/NoMatchingPods | False/Pending | False/Failed.
+                  The message names up to 5 failing pods:
+                  "<pod>: volume <v>: <reason>: <msg>".
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              failedPods:
+                description: |-
+                  failedPods is the count of matched pods with at least one listed
+                  volume Failed or Unsupported.
+                format: int32
+                type: integer
+              matchedPods:
+                description: |-
+                  matchedPods is the count of scheduled, non-terminal pods selected by
+                  podSelector that have at least one listed volume.
+                format: int32
+                type: integer
+              observedGeneration:
+                description: observedGeneration is the generation most recently reconciled.
+                format: int64
+                type: integer
+              selectedPodsWithoutVolumes:
+                description: |-
+                  selectedPodsWithoutVolumes is the count of scheduled, non-terminal
+                  pods selected by podSelector that have NONE of the listed volumes
+                  (D38): evasion is surfaced, not prevented -- renaming a volume or
+                  relabeling a pod escapes this limiter's ceiling, and this count (plus
+                  up to 5 pod names in the Ready message, and a SelectedPodWithoutVolumes
+                  warning event) is how an admin sees the escape instead of it silently
+                  looking like NoMatchingPods.
+                format: int32
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

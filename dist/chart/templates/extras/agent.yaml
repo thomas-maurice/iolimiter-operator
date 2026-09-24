@@ -1,0 +1,147 @@
+{{- if or (not (hasKey .Values.agent "enabled")) (.Values.agent.enabled) }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    control-plane: agent
+  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent" "context" $) }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+      control-plane: agent
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: agent
+      labels:
+        app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+        helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        control-plane: agent
+    spec:
+      {{- with .Values.agent.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.agent.tolerations }}
+      tolerations: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.nodeSelector }}
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - args:
+        - agent
+        - --health-probe-bind-address=:8081
+        - --metrics-bind-address=:8443
+        - --resync-period={{ .Values.agent.resyncPeriod }}
+        {{- if .Values.agent.allowRootDevice }}
+        - --allow-root-device=true
+        {{- end }}
+        {{- with .Values.agent.protectedPaths }}
+        - --protected-paths={{ join "," . }}
+        {{- end }}
+        {{- with .Values.agent.kubepodsCgroup }}
+        - --kubepods-cgroup={{ . }}
+        {{- end }}
+        {{- range .Values.agent.args }}
+        - {{ tpl . $ }}
+        {{- end }}
+        command:
+        - /manager
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: "{{ .Values.manager.image.repository | default "controller" }}{{- if not (contains "@" (.Values.manager.image.repository | default "controller")) }}:{{ .Values.manager.image.tag | default .Chart.AppVersion }}{{- end }}"
+        {{- with .Values.manager.image.pullPolicy }}
+        imagePullPolicy: {{ . }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: agent
+        ports:
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- if .Values.agent.resources }}
+          {{- toYaml .Values.agent.resources | nindent 10 }}
+          {{- else }}
+          {}
+          {{- end }}
+        securityContext:
+          {{- if .Values.agent.securityContext }}
+          {{- toYaml .Values.agent.securityContext | nindent 10 }}
+          {{- else }}
+          {}
+          {{- end }}
+        volumeMounts:
+        # C7 (SPEC.md D28): only the kubepods subtree is bind-mounted, not
+        # the whole cgroup2 tree (see the volumes.cgroup.hostPath.path
+        # comment below and config/agent/agent.yaml's matching comment).
+        - mountPath: /host/cgroup/{{ .Values.agent.cgroupHostSubtree }}
+          name: cgroup
+        # F1 (Fable review): single file, not the whole host /proc
+        # directory -- see the volumes.proc.hostPath comment below and
+        # config/agent/agent.yaml's matching comment.
+        - mountPath: /host/proc/1/mountinfo
+          name: proc
+          readOnly: true
+      securityContext:
+        {{- if .Values.agent.podSecurityContext }}
+        {{- toYaml .Values.agent.podSecurityContext | nindent 8 }}
+        {{- else }}
+        {}
+        {{- end }}
+      serviceAccountName: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent" "context" $) }}
+      {{- if and (hasKey .Values.agent "terminationGracePeriodSeconds") (ne .Values.agent.terminationGracePeriodSeconds nil) }}
+      terminationGracePeriodSeconds: {{ .Values.agent.terminationGracePeriodSeconds }}
+      {{- end }}
+      volumes:
+      # D28: the mount source's relative path (under /sys/fs/cgroup) must
+      # exactly match the mountPath's suffix above (under /host/cgroup) so
+      # D6's discovery, which looks for known kubepods-root subdirectory
+      # names under --cgroup-root, still finds it -- nothing else exists
+      # under /host/cgroup for it to find. Default matches kind's layout
+      # (kubelet.slice/kubelet-kubepods.slice); override
+      # agent.cgroupHostSubtree to kubepods.slice (systemd) or
+      # kubepods/kubelet/kubepods (cgroupfs) to match a real node's layout.
+      - hostPath:
+          path: /sys/fs/cgroup/{{ .Values.agent.cgroupHostSubtree }}
+          type: Directory
+        name: cgroup
+      # F1: single file (see the volumeMounts comment above), not a
+      # Directory hostPath of the whole host /proc -- a Directory mount let
+      # a uid-0 agent jump through /proc/1/root (magic symlink to host PID
+      # 1's own rootfs) with only a same-uid ptrace check, no capability
+      # required.
+      - hostPath:
+          path: /proc/1/mountinfo
+          type: File
+        name: proc
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 10%
+    type: RollingUpdate
+{{- end }}

@@ -1,0 +1,50 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - persistentvolumes
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - storage.maurice.fr
+  resources:
+  - iolimiters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - storage.maurice.fr
+  resources:
+  - iolimiters/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - storage.maurice.fr
+  resources:
+  - podiolimits
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch

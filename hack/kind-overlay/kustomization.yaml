@@ -1,0 +1,28 @@
+# F2 (Fable review): kind's cgroup layout
+# (kubelet.slice/kubelet-kubepods.slice, hack/kind-config.yaml's cgroupRoot:
+# /kubelet) is no longer the shipped default (config/agent/agent.yaml's
+# default is now kubepods.slice, the common systemd layout, since a
+# kind-tuned default broke every non-kind install). This overlay is the
+# explicit kind override, used by `make deploy`/`deploy-kind` (and
+# therefore the e2e suite) -- see Makefile's kustomizeDeployOverlay.
+#
+# JSON6902 by index rather than a strategic-merge patch: VolumeMount's own
+# patch merge key is mountPath (the very field being changed), so a
+# strategic merge patch keyed on the old mountPath would add a second
+# volumeMount instead of replacing the first. The indices below match
+# config/agent/agent.yaml's fixed, hand-authored order (cgroup, then proc)
+# -- this file is the only consumer of that ordering, so it's safe to pin.
+resources:
+- ../../config/default
+
+patches:
+- target:
+    kind: DaemonSet
+    name: k8s-blkio-limiter-agent
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/volumeMounts/0/mountPath
+      value: /host/cgroup/kubelet.slice/kubelet-kubepods.slice
+    - op: replace
+      path: /spec/template/spec/volumes/0/hostPath/path
+      value: /sys/fs/cgroup/kubelet.slice/kubelet-kubepods.slice

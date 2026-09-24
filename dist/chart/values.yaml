@@ -1,0 +1,333 @@
+## String to partially override chart.fullname template (will maintain the release name)
+##
+# nameOverride: ""
+
+## String to fully override chart.fullname template
+##
+# fullnameOverride: ""
+
+## Configure the controller manager deployment
+##
+manager:
+  ## Set to false to skip manager installation
+  ##
+  enabled: true
+
+  replicas: 1
+
+  image:
+    repository: ghcr.io/thomas-maurice/k8s-blkio-limiter
+    ## Image tag (defaults to Chart.appVersion if not set)
+    ##
+    # tag: ""
+    pullPolicy: IfNotPresent
+
+  ## Arguments
+  ##
+  args:
+    - --leader-elect
+
+  ## Health probes.
+  ## The manager serves the liveness (/healthz) and readiness (/readyz) endpoints on this port.
+  ##
+  healthProbe:
+    # Health probe server port
+    port: 8081
+
+  ## Image pull secrets
+  ##
+  # imagePullSecrets:
+  #   - name: myregistrykey
+
+  ## Pod-level security settings
+  ##
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  ## Container-level security settings
+  ##
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    readOnlyRootFilesystem: true
+
+  ## Resource limits and requests
+  ##
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+
+  ## Manager pod's affinity
+  ##
+  affinity: {}
+
+  ## Manager pod's node selector
+  ##
+  nodeSelector: {}
+
+  ## Manager pod's tolerations
+  ##
+  tolerations: []
+
+  ## Deployment strategy
+  ##
+  # strategy:
+  #   type: RollingUpdate
+  #   rollingUpdate:
+  #     maxSurge: 25%
+  #     maxUnavailable: 25%
+
+  ## Priority class name
+  ##
+  # priorityClassName: ""
+
+  ## Topology spread constraints
+  ##
+  # topologySpreadConstraints: []
+
+  ## Termination grace period seconds
+  ##
+  terminationGracePeriodSeconds: 10
+
+  ## Custom Deployment labels
+  ##
+  # labels: {}
+
+  ## Custom Deployment annotations
+  ##
+  # annotations: {}
+
+  ## Custom Pod labels and annotations
+  ##
+  # pod:
+  #   labels: {}
+  #   annotations: {}
+
+## RBAC configuration
+##
+rbac:
+  ## RBAC resource scope
+  ## - false (default): ClusterRole/ClusterRoleBinding (all namespaces)
+  ## - true: Role/RoleBinding (release namespace only)
+  ##
+  namespaced: false
+
+  ## Helper roles for CRD management (admin/editor/viewer)
+  ##
+  helpers:
+    ## Install convenience admin/editor/viewer roles for CRDs
+    ##
+    enabled: false
+
+## ServiceAccount configuration
+##
+serviceAccount:
+  # Install default ServiceAccount provided
+  enabled: true
+
+  ## Existing ServiceAccount name (required when enabled=false)
+  ## Set to "default" to use the namespace default ServiceAccount
+  ## Note: When enabled=true, respects nameOverride/fullnameOverride
+  ##
+  # name: ""
+
+  ## Custom ServiceAccount annotations
+  ##
+  # annotations: {}
+
+  ## Custom ServiceAccount labels
+  ##
+  # labels: {}
+
+## Custom Resource Definitions
+##
+crd:
+  # Install CRDs with the chart
+  enabled: true
+  # Keep CRDs when uninstalling
+  keep: true
+
+## Controller metrics endpoint.
+## Enable to expose /metrics endpoint
+##
+metrics:
+  enabled: true
+  # Metrics server port
+  port: 8443
+  # Enable secure metrics: HTTPS with certs/auth (true) or HTTP (false).
+  # Note: Metrics authn/authz needs ClusterRole access.
+  secure: true
+
+## Cert-manager integration for TLS certificates.
+## Required for webhook certificates and metrics endpoint certificates.
+##
+certManager:
+  enabled: false
+
+## Webhook server configuration
+##
+webhook:
+  enabled: false
+  # Webhook server port
+  port: 9443
+
+## Prometheus ServiceMonitor for metrics scraping.
+## Requires prometheus-operator to be installed in the cluster.
+##
+prometheus:
+  enabled: false
+
+  ## Custom ServiceMonitor labels
+  ##
+  # labels: {}
+
+  ## Custom ServiceMonitor annotations
+  ##
+  # annotations: {}
+
+## Network policies for controlling traffic flow.
+## Enable to restrict ingress to the controller manager.
+##
+networkPolicy:
+  enabled: false
+
+
+## Configure the node agent DaemonSet (SPEC.md §6.1/§8).
+##
+agent:
+  ## Set to false to skip agent installation.
+  ##
+  enabled: true
+
+  ## Extra agent flags, appended after the built-in ones below. Use this to
+  ## set --zap-log-level=debug (or =error, or an integer), --zap-encoder,
+  ## --zap-devel, etc.
+  ##
+  args: []
+
+  ## --resync-period: how often the agent re-reads io.max to detect drift
+  ## (SPEC.md D11).
+  ##
+  resyncPeriod: 60s
+
+  ## --allow-root-device: opt in to throttling any device backing
+  ## agent.protectedPaths below (SPEC.md D23/D34), not just the root disk.
+  ## Off by default: throttling one of those devices also throttles every
+  ## pod's rootfs/writable layer on that node and can cause node-wide
+  ## priority inversion under ext4 data=ordered.
+  ##
+  allowRootDevice: false
+
+  ## --protected-paths: host paths whose whole-disk device is refused
+  ## unless allowRootDevice is set (SPEC.md D34). Missing paths are
+  ## ignored. Default matches the agent's own --protected-paths default:
+  ## node root, kubelet's directory, and the container runtime's own
+  ## storage directories (their writable layers share the same
+  ## fsync-inversion risk as the root disk, K7).
+  ##
+  protectedPaths:
+    - /
+    - /var/lib/kubelet
+    - /var/lib/containerd
+    - /var/lib/containers
+
+  ## --kubepods-cgroup: override kubepods root discovery (SPEC.md D6). Leave
+  ## empty to auto-discover.
+  ##
+  kubepodsCgroup: ""
+
+  ## Host path (relative to /sys/fs/cgroup) bind-mounted into the agent as
+  ## its cgroup root (SPEC.md D28: narrowed to the kubepods subtree, not the
+  ## whole cgroup2 tree). Must match the node's actual layout:
+  ##   - typical systemd node (default): kubepods.slice
+  ##   - kind:                        kubelet.slice/kubelet-kubepods.slice
+  ##     (see hack/kind-values.yaml -- `make deploy-kind`'s kustomize path
+  ##     uses hack/kind-overlay for the same override)
+  ##   - cgroupfs, kubelet default:  kubepods
+  ##   - cgroupfs, under kubelet/:   kubelet/kubepods
+  ## A wrong value fails every agent pod at ContainerCreating (the hostPath
+  ## type is Directory, so kubelet refuses to start the pod if the path
+  ## doesn't exist) -- `kubectl describe pod` on a stuck agent pod is the
+  ## only signal, there is nothing in the operator's own status (Fable
+  ## review F2).
+  ##
+  cgroupHostSubtree: kubepods.slice
+
+  ## Pod-level security settings (SPEC.md D14: not privileged).
+  ##
+  podSecurityContext:
+    runAsUser: 0
+    runAsNonRoot: false
+    seccompProfile:
+      type: RuntimeDefault
+
+  ## Container-level security settings (SPEC.md D14).
+  ##
+  securityContext:
+    privileged: false
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  ## Resource limits and requests.
+  ##
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  ## Agent pod's tolerations. Defaults to tolerating everything: the agent
+  ## must run on every node with pods it may need to throttle.
+  ##
+  tolerations:
+    - operator: Exists
+
+  ## Agent pod's node selector.
+  ##
+  nodeSelector: {}
+
+  ## Priority class name.
+  ##
+  priorityClassName: system-node-critical
+
+  ## Termination grace period seconds.
+  ##
+  terminationGracePeriodSeconds: 10
+
+## ValidatingAdmissionPolicy hardening (SPEC.md C7/D27): only the controller
+## SA may write podiolimits (the main resource), and only the agent SA may
+## write podiolimits/status, and only for its own node. Requires Kubernetes
+## 1.32+ (already this chart's minimum, OQ2) with
+## admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy enabled
+## (default-on in-tree since 1.30). Disable if your cluster doesn't support
+## it.
+##
+admissionPolicy:
+  enabled: true
+
+## Release namespace management (SPEC.md D29). The kubebuilder helm plugin
+## never templates a Namespace object (namespace lifecycle is left to the
+## installer, e.g. `helm install --create-namespace`), which means a plain
+## `--create-namespace` namespace carries none of the PSA "privileged"
+## labels the agent's hostPath volumes need (D14). Set namespace.create:
+## true to let the chart manage the namespace (with those labels) itself --
+## do NOT also pass --create-namespace in that case, and don't enable this
+## against a namespace an earlier release already owns outside Helm.
+## Leave false (default) to keep the previous behaviour: create/label the
+## namespace yourself first (see the README's Helm install section).
+##
+namespace:
+  create: false

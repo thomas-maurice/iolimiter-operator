@@ -1,0 +1,55 @@
+# C7 hardening (SPEC.md D27): only the agent SA may write podiolimits/status,
+# and only for the PodIOLimit whose spec.nodeName matches the identity the
+# agent's own bound service-account token carries -- otherwise a compromised
+# agent on node A (RBAC already lets it write ANY PodIOLimit's status,
+# D16/§7: RBAC can't express a field selector) could forge status for a pod
+# on node B. `authentication.kubernetes.io/node-name` is populated by the
+# apiserver from the token's own node binding (kubelet-projected SA tokens),
+# not anything the client can set, so it's exactly the "which node is this
+# request actually coming from" claim there is no other way to check on a
+# per-object namespaced CRD (SPEC.md OQ2: this is why the minimum
+# Kubernetes version is 1.32).
+#
+# See podiolimit_write_policy.yaml's header for why the agent SA's username
+# below is written as quote-delimited concatenation segments (so
+# config/default's kustomize `replacements` can substitute the namespace
+# and SA name derived from the live ServiceAccount object, Fable review
+# F7), and for why apiVersions is "*" rather than pinned to ["v1alpha1"]
+# (same maintenance-trap fix, applied here too). The second validation's
+# `has(request.userInfo.extra)` guard (D39, security review) checks the map
+# field is actually present before the `in` lookup: `request.userInfo.extra`
+# is only populated for token-authenticated requests (e.g. absent for a
+# client-cert identity), and CEL's `in` on a field that isn't set on the
+# object errors out rather than treating it as empty -- an admin remains
+# unable to write podiolimits/status either way (RBAC + the first
+# validation already require the exact agent SA), but this keeps the denial
+# a clean policy message instead of a CEL evaluation error.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: podiolimit-status-write-restricted
+  labels:
+    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["storage.maurice.fr"]
+        apiVersions: ["*"]
+        operations: ["UPDATE"]
+        resources: ["podiolimits/status"]
+  validations:
+    - expression: >-
+        request.userInfo.username == 'system:serviceaccount:' +
+        'k8s-blkio-limiter-system' + ':' + 'k8s-blkio-limiter-agent'
+      message: >-
+        podiolimits/status may only be updated by the k8s-blkio-limiter
+        agent service account (SPEC.md D27).
+    - expression: >-
+        has(request.userInfo.extra) &&
+        'authentication.kubernetes.io/node-name' in request.userInfo.extra &&
+        request.userInfo.extra['authentication.kubernetes.io/node-name'][0] == object.spec.nodeName
+      message: >-
+        podiolimits/status may only be updated by the agent running on the
+        PodIOLimit's own spec.nodeName (SPEC.md D27, D39, OQ2).

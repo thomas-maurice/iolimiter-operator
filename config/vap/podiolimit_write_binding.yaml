@@ -1,0 +1,13 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: podiolimit-write-restricted-binding
+  labels:
+    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # kustomize's nameReference config (kustomizeconfig.yaml in this dir)
+  # rewrites this to the namePrefixed policy name; written un-prefixed here.
+  policyName: podiolimit-write-restricted
+  validationActions: ["Deny"]
+  matchResources: {}

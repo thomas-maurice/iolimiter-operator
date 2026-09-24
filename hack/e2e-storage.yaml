@@ -1,0 +1,13 @@
+# §10: static StorageClass for the e2e suite's local PVs on the kind
+# worker's loop devices (hack/setup-loopdev.sh). Each test creates its own
+# directory under /mnt/blkio-e2e/disk{0,1}, a static local PV on that path
+# (node affinity to the worker) and a PVC pre-bound via volumeName, so the
+# pod gets a real PVC -> kubelet kubernetes.io~local-volume mount -> loop
+# device MAJ:MIN.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: blkio-local
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/mountinfo"
+	"github.com/thomas-maurice/iolimiter-operator/internal/mountinfo"
 )
 
 // buildFakeSysfs lays out a minimal real /sys/dev/block-shaped tree with an

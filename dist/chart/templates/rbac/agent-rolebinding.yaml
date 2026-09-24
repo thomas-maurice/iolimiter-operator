@@ -11,10 +11,10 @@ metadata:
 {{- end }}
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent-rolebinding" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "agent-rolebinding" "context" $) }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   {{- if .Values.rbac.namespaced }}
@@ -22,9 +22,9 @@ roleRef:
   {{- else }}
   kind: ClusterRole
   {{- end }}
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent-role" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "agent-role" "context" $) }}
 subjects:
 - kind: ServiceAccount
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "agent" "context" $) }}
   namespace: {{ .Release.Namespace }}
 {{- end }}

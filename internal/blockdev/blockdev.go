@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/mountinfo"
+	"github.com/thomas-maurice/iolimiter-operator/internal/mountinfo"
 )
 
 // WholeDisk resolves maj:min to its whole-disk device (K4). A partition's

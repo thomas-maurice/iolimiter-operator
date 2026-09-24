@@ -11,10 +11,10 @@ metadata:
 {{- end }}
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
     helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "iolimiter-viewer-role" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "iolimiter-viewer-role" "context" $) }}
 rules:
 - apiGroups:
   - storage.maurice.fr

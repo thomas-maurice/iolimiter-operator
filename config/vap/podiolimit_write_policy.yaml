@@ -65,8 +65,8 @@
 # a literal string, not a kustomize var: kustomize's built-in nameReference
 # transformer only rewrites known reference fields (e.g. RoleBinding
 # subjects), not arbitrary CEL expression text. It must be kept in sync by
-# hand with config/default's namespace ("k8s-blkio-limiter-system") and
-# config/rbac/service_account.yaml + namePrefix ("k8s-blkio-limiter-" +
+# hand with config/default's namespace ("iolimiter-operator-system") and
+# config/rbac/service_account.yaml + namePrefix ("iolimiter-operator-" +
 # "controller-manager"). test/e2e/hardening asserts this string against the
 # live ServiceAccount so drift fails loudly instead of silently.
 apiVersion: admissionregistration.k8s.io/v1
@@ -74,7 +74,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: podiolimit-write-restricted
   labels:
-    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/name: iolimiter-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
   failurePolicy: Fail
@@ -87,10 +87,10 @@ spec:
   validations:
     - expression: >-
         request.userInfo.username == 'system:serviceaccount:' +
-        'k8s-blkio-limiter-system' + ':' + 'k8s-blkio-limiter-controller-manager'
+        'iolimiter-operator-system' + ':' + 'iolimiter-operator-controller-manager'
         || (request.operation == 'UPDATE' && object.spec == oldObject.spec)
       message: >-
         podiolimits (the main resource) may only be created, or have its
-        spec changed, by the k8s-blkio-limiter controller service account; a
+        spec changed, by the iolimiter-operator controller service account; a
         metadata-only update (e.g. stripping a stuck finalizer during
         uninstall) is allowed from anyone RBAC permits (SPEC.md D27, D33).

@@ -1,6 +1,6 @@
 apiVersion: v2
-name: k8s-blkio-limiter
-description: A Helm chart to distribute k8s-blkio-limiter
+name: iolimiter-operator
+description: A Helm chart to distribute iolimiter-operator
 type: application
 
 version: 0.1.0

@@ -4,14 +4,14 @@ kind: NetworkPolicy
 metadata:
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-    app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "allow-metrics-traffic" "context" $) }}
+    app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "allow-metrics-traffic" "context" $) }}
   namespace: {{ .Release.Namespace }}
 spec:
   podSelector:
     matchLabels:
       control-plane: controller-manager
-      app.kubernetes.io/name: {{ include "k8s-blkio-limiter.name" . }}
+      app.kubernetes.io/name: {{ include "iolimiter-operator.name" . }}
   policyTypes:
     - Ingress
   ingress:

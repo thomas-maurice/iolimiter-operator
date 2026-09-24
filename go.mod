@@ -1,4 +1,4 @@
-module github.com/thomas-maurice/k8s-blkio-limiter
+module github.com/thomas-maurice/iolimiter-operator
 
 go 1.26.0
 

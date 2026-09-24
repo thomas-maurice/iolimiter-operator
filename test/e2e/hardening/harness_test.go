@@ -46,7 +46,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/thomas-maurice/k8s-blkio-limiter/test/e2e/harness"
+	"github.com/thomas-maurice/iolimiter-operator/test/e2e/harness"
 )
 
 func TestMain(m *testing.M) {

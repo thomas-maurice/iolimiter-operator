@@ -1,7 +1,7 @@
 # Image URL to use all building/pushing image targets. Local dev default; the
-# published image is ghcr.io/thomas-maurice/k8s-blkio-limiter (see CI). One
+# published image is ghcr.io/thomas-maurice/iolimiter-operator (see CI). One
 # image, two modes: /manager (controller) and /manager agent (node agent).
-IMG ?= k8s-blkio-limiter:dev
+IMG ?= iolimiter-operator:dev
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -123,10 +123,10 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name k8s-blkio-limiter-builder
-	$(CONTAINER_TOOL) buildx use k8s-blkio-limiter-builder
+	- $(CONTAINER_TOOL) buildx create --name iolimiter-operator-builder
+	$(CONTAINER_TOOL) buildx use iolimiter-operator-builder
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm k8s-blkio-limiter-builder
+	- $(CONTAINER_TOOL) buildx rm iolimiter-operator-builder
 	rm Dockerfile.cross
 
 # F10 (Fable review): render config/default with an image override via a
@@ -152,7 +152,7 @@ trap 'rm -rf "$$tmpdir"' EXIT; \
 full_img="${IMG}"; \
 img_name="$${full_img%:*}"; \
 img_tag="$${full_img##*:}"; \
-printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n- ../../%s\nimages:\n- name: ghcr.io/thomas-maurice/k8s-blkio-limiter\n  newName: %s\n  newTag: %s\n' \
+printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n- ../../%s\nimages:\n- name: ghcr.io/thomas-maurice/iolimiter-operator\n  newName: %s\n  newTag: %s\n' \
 	"$(1)" "$$img_name" "$$img_tag" > "$$tmpdir/kustomization.yaml"; \
 "$(KUSTOMIZE)" build "$$tmpdir"
 endef
@@ -173,7 +173,7 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 # The helm plugin runs `make build-installer` itself (IMG from the env), so the chart's
 # default image is whatever IMG was at that point: always render it with the
 # published image, never the local :dev one.
-PUBLISHED_IMG ?= ghcr.io/thomas-maurice/k8s-blkio-limiter:latest
+PUBLISHED_IMG ?= ghcr.io/thomas-maurice/iolimiter-operator:latest
 helm-chart: ## Regenerate the Helm chart (dist/chart) from kustomize config via the kubebuilder helm plugin.
 	IMG=$(PUBLISHED_IMG) kubebuilder edit --plugins=helm/v2-alpha --force
 	# §8: the plugin only templatizes the manager Deployment. Idempotent.
@@ -285,8 +285,8 @@ kind-reset: kind-delete kind-setup ## Delete and recreate the pinned kind cluste
 .PHONY: deploy-kind
 deploy-kind: docker-build kind-load deploy ## Build, load and deploy the manager image into the pinned kind cluster.
 	@# The tag (:dev) doesn't change between builds: force new pods onto the freshly loaded image.
-	$(KCTL) -n k8s-blkio-limiter-system rollout restart deploy/k8s-blkio-limiter-controller-manager
-	$(KCTL) -n k8s-blkio-limiter-system rollout status deploy/k8s-blkio-limiter-controller-manager --timeout=3m
+	$(KCTL) -n iolimiter-operator-system rollout restart deploy/iolimiter-operator-controller-manager
+	$(KCTL) -n iolimiter-operator-system rollout status deploy/iolimiter-operator-controller-manager --timeout=3m
 
 .PHONY: e2e-setup
 e2e-setup: kind-setup deploy-kind ## One-time setup for e2e: cluster + deployed manager.
@@ -395,9 +395,9 @@ endef
 ## Helm binary to use for deploying the chart
 HELM ?= helm
 ## Namespace to deploy the Helm release
-HELM_NAMESPACE ?= k8s-blkio-limiter-system
+HELM_NAMESPACE ?= iolimiter-operator-system
 ## Name of the Helm release
-HELM_RELEASE ?= k8s-blkio-limiter
+HELM_RELEASE ?= iolimiter-operator
 ## Path to the Helm chart directory
 HELM_CHART_DIR ?= dist/chart
 ## Additional arguments to pass to helm commands

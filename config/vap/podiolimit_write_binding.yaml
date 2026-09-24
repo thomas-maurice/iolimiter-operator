@@ -3,7 +3,7 @@ kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: podiolimit-write-restricted-binding
   labels:
-    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/name: iolimiter-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
   # kustomize's nameReference config (kustomizeconfig.yaml in this dir)

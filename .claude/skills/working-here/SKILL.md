@@ -1,9 +1,9 @@
 ---
 name: working-here
-description: How we work in the k8s-blkio-limiter repo — building, testing (unit/envtest/e2e), the kind cluster, API changes, and docs. Use for any work in this repo.
+description: How we work in the iolimiter-operator repo — building, testing (unit/envtest/e2e), the kind cluster, API changes, and docs. Use for any work in this repo.
 ---
 
-# Working in k8s-blkio-limiter
+# Working in iolimiter-operator
 
 ## Layout
 
@@ -182,20 +182,20 @@ check a chart change before committing):
 
 ```sh
 make undeploy ignore-not-found=true
-IMG=k8s-blkio-limiter:dev make docker-build
-kind load docker-image k8s-blkio-limiter:dev --name blkio-limiter
-kubectl --context kind-blkio-limiter create namespace k8s-blkio-limiter-system --dry-run=client -o yaml \
+IMG=iolimiter-operator:dev make docker-build
+kind load docker-image iolimiter-operator:dev --name blkio-limiter
+kubectl --context kind-blkio-limiter create namespace iolimiter-operator-system --dry-run=client -o yaml \
   | kubectl --context kind-blkio-limiter apply -f -
-kubectl --context kind-blkio-limiter label namespace k8s-blkio-limiter-system \
+kubectl --context kind-blkio-limiter label namespace iolimiter-operator-system \
   pod-security.kubernetes.io/enforce=privileged \
   pod-security.kubernetes.io/audit=privileged \
   pod-security.kubernetes.io/warn=privileged --overwrite
-IMG=k8s-blkio-limiter:dev HELM_EXTRA_ARGS="-f hack/kind-values.yaml" make helm-deploy
+IMG=iolimiter-operator:dev HELM_EXTRA_ARGS="-f hack/kind-values.yaml" make helm-deploy
 # ... test, then restore the standard state:
-helm --kube-context kind-blkio-limiter uninstall k8s-blkio-limiter -n k8s-blkio-limiter-system
-kubectl --context kind-blkio-limiter delete namespace k8s-blkio-limiter-system --ignore-not-found
+helm --kube-context kind-blkio-limiter uninstall iolimiter-operator -n iolimiter-operator-system
+kubectl --context kind-blkio-limiter delete namespace iolimiter-operator-system --ignore-not-found
 kubectl --context kind-blkio-limiter delete crd iolimiters.storage.maurice.fr podiolimits.storage.maurice.fr --ignore-not-found
-IMG=k8s-blkio-limiter:dev make deploy-kind
+IMG=iolimiter-operator:dev make deploy-kind
 ```
 
 The Helm chart, unlike `config/default`'s kustomize `namespace_psa_patch.yaml`,
@@ -301,13 +301,13 @@ Levels (SPEC.md §6.3 is the source of truth; summarised here):
 Raising verbosity on a running (e.g. kind) deployment:
 
 ```sh
-kubectl --context kind-blkio-limiter -n k8s-blkio-limiter-system patch deployment \
-  k8s-blkio-limiter-controller-manager --type=json \
+kubectl --context kind-blkio-limiter -n iolimiter-operator-system patch deployment \
+  iolimiter-operator-controller-manager --type=json \
   -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--zap-log-level=debug"}]'
 ```
 
 The agent DaemonSet takes the same flag the same way (`kubectl ... patch
-daemonset k8s-blkio-limiter-agent --type=json -p '[...]'`, same JSON patch
+daemonset iolimiter-operator-agent --type=json -p '[...]'`, same JSON patch
 shape, appended to its existing args).
 
 `--zap-log-level` (`debug`/`info`/`error` or an integer), `--zap-encoder`
@@ -321,8 +321,8 @@ Following one object end to end (the controller and the agent each write
 their own narrative lines, from C4/C2 respectively):
 
 ```sh
-kubectl -n k8s-blkio-limiter-system logs deploy/k8s-blkio-limiter-controller-manager | grep '<ns>/<name>'
-kubectl -n k8s-blkio-limiter-system logs ds/k8s-blkio-limiter-agent | grep '<ns>/<pod>'
+kubectl -n iolimiter-operator-system logs deploy/iolimiter-operator-controller-manager | grep '<ns>/<name>'
+kubectl -n iolimiter-operator-system logs ds/iolimiter-operator-agent | grep '<ns>/<pod>'
 ```
 
 ## Gotchas learned the hard way

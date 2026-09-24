@@ -41,14 +41,14 @@ resources:
 # affects the raw-kustomize path.
 images:
 - name: controller
-  newName: ghcr.io/thomas-maurice/k8s-blkio-limiter
+  newName: ghcr.io/thomas-maurice/iolimiter-operator
   newTag: latest
 
 replacements:
 - source:
     fieldPath: metadata.namespace
     kind: ServiceAccount
-    name: k8s-blkio-limiter-controller-manager
+    name: iolimiter-operator-controller-manager
   targets:
   - fieldPaths:
     - spec.validations.0.expression
@@ -57,11 +57,11 @@ replacements:
       index: 3
     select:
       kind: ValidatingAdmissionPolicy
-      name: k8s-blkio-limiter-podiolimit-write-restricted
+      name: iolimiter-operator-podiolimit-write-restricted
 - source:
     fieldPath: metadata.name
     kind: ServiceAccount
-    name: k8s-blkio-limiter-controller-manager
+    name: iolimiter-operator-controller-manager
   targets:
   - fieldPaths:
     - spec.validations.0.expression
@@ -70,11 +70,11 @@ replacements:
       index: 7
     select:
       kind: ValidatingAdmissionPolicy
-      name: k8s-blkio-limiter-podiolimit-write-restricted
+      name: iolimiter-operator-podiolimit-write-restricted
 - source:
     fieldPath: metadata.namespace
     kind: ServiceAccount
-    name: k8s-blkio-limiter-agent
+    name: iolimiter-operator-agent
   targets:
   - fieldPaths:
     - spec.validations.0.expression
@@ -83,11 +83,11 @@ replacements:
       index: 3
     select:
       kind: ValidatingAdmissionPolicy
-      name: k8s-blkio-limiter-podiolimit-status-write-restricted
+      name: iolimiter-operator-podiolimit-status-write-restricted
 - source:
     fieldPath: metadata.name
     kind: ServiceAccount
-    name: k8s-blkio-limiter-agent
+    name: iolimiter-operator-agent
   targets:
   - fieldPaths:
     - spec.validations.0.expression
@@ -96,4 +96,4 @@ replacements:
       index: 7
     select:
       kind: ValidatingAdmissionPolicy
-      name: k8s-blkio-limiter-podiolimit-status-write-restricted
+      name: iolimiter-operator-podiolimit-status-write-restricted

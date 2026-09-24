@@ -9,7 +9,7 @@ metadata:
 {{- if .Values.rbac.namespaced }}
   namespace: {{ .Release.Namespace }}
 {{- end }}
-  name: {{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent-role" "context" $) }}
+  name: {{ include "iolimiter-operator.resourceName" (dict "suffix" "agent-role" "context" $) }}
 rules:
 - apiGroups:
   - events.k8s.io

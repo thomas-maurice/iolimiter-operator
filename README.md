@@ -1,6 +1,6 @@
-# k8s-blkio-limiter
+# iolimiter-operator
 
-[![CI](https://github.com/thomas-maurice/k8s-blkio-limiter/actions/workflows/ci.yml/badge.svg)](https://github.com/thomas-maurice/k8s-blkio-limiter/actions/workflows/ci.yml)
+[![CI](https://github.com/thomas-maurice/iolimiter-operator/actions/workflows/ci.yml/badge.svg)](https://github.com/thomas-maurice/iolimiter-operator/actions/workflows/ci.yml)
 
 A Kubernetes operator that caps a pod's disk I/O (cgroup v2 `io.max`:
 bandwidth + IOPS, read and write independently) per PVC volume, declared as
@@ -78,8 +78,8 @@ kubectl apply -k hack/kind-overlay   # uses the published image; for a local
 ### Helm
 
 ```bash
-helm install k8s-blkio-limiter dist/chart \
-  --namespace k8s-blkio-limiter-system --create-namespace
+helm install iolimiter-operator dist/chart \
+  --namespace iolimiter-operator-system --create-namespace
 ```
 
 The chart (regenerated from kustomize by `make helm-chart`, see
@@ -93,8 +93,8 @@ namespace `--create-namespace` already created without the chart's own
 ownership metadata):
 
 ```bash
-helm install k8s-blkio-limiter dist/chart \
-  --namespace k8s-blkio-limiter-system \
+helm install iolimiter-operator dist/chart \
+  --namespace iolimiter-operator-system \
   --set namespace.create=true
 ```
 
@@ -106,20 +106,20 @@ The shipped defaults (`config/default`'s kustomize image transform, and a
 plain `helm install` with no `manager.image.tag` override, which falls back
 to the chart's `Chart.appVersion`) are conveniences, not a production
 recommendation (D39, security review): kustomize's own default is
-`ghcr.io/thomas-maurice/k8s-blkio-limiter:latest`, a moving tag. Pin a real
+`ghcr.io/thomas-maurice/iolimiter-operator:latest`, a moving tag. Pin a real
 deployment to a released tag or, stronger, a digest:
 
 ```bash
 # kustomize
 cd config/default && kustomize edit set image \
-  controller=ghcr.io/thomas-maurice/k8s-blkio-limiter:v0.1.0
+  controller=ghcr.io/thomas-maurice/iolimiter-operator:v0.1.0
 # or by digest:
 cd config/default && kustomize edit set image \
-  controller=ghcr.io/thomas-maurice/k8s-blkio-limiter@sha256:<digest>
+  controller=ghcr.io/thomas-maurice/iolimiter-operator@sha256:<digest>
 
 # Helm
-helm install k8s-blkio-limiter dist/chart \
-  --namespace k8s-blkio-limiter-system --create-namespace \
+helm install iolimiter-operator dist/chart \
+  --namespace iolimiter-operator-system --create-namespace \
   --set manager.image.tag=v0.1.0
 ```
 
@@ -129,16 +129,16 @@ right after push, by digest. Verify before pulling:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp 'https://github.com/thomas-maurice/k8s-blkio-limiter/.github/workflows/ci.yml@.*' \
+  --certificate-identity-regexp 'https://github.com/thomas-maurice/iolimiter-operator/.github/workflows/ci.yml@.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/thomas-maurice/k8s-blkio-limiter@sha256:<digest>
+  ghcr.io/thomas-maurice/iolimiter-operator@sha256:<digest>
 ```
 
 Common values:
 
 | Value | Default | Meaning |
 |---|---|---|
-| `manager.image.repository` / `manager.image.tag` | `ghcr.io/thomas-maurice/k8s-blkio-limiter` / chart `appVersion` | Image for **both** the controller Deployment and the agent DaemonSet (one image, two modes, SPEC.md D12) |
+| `manager.image.repository` / `manager.image.tag` | `ghcr.io/thomas-maurice/iolimiter-operator` / chart `appVersion` | Image for **both** the controller Deployment and the agent DaemonSet (one image, two modes, SPEC.md D12) |
 | `manager.args` | `[--leader-elect]` | Extra flags on `/manager` (controller mode), e.g. `--zap-log-level=debug` |
 | `agent.args` | `[]` | Extra flags on `/manager agent`, e.g. `--zap-log-level=debug` |
 | `agent.resyncPeriod` | `60s` | `--resync-period`: drift-correction interval (D11) |
@@ -151,8 +151,8 @@ Common values:
 | `rbac.helpers.enabled` | `false` | Install the `iolimiter-{admin,editor,viewer}` ClusterRoles |
 
 ```bash
-helm install k8s-blkio-limiter dist/chart \
-  --namespace k8s-blkio-limiter-system --create-namespace \
+helm install iolimiter-operator dist/chart \
+  --namespace iolimiter-operator-system --create-namespace \
   --set manager.image.tag=v0.1.0 \
   --set agent.resyncPeriod=30s
 ```
@@ -177,7 +177,7 @@ Only then uninstall the controller/agent themselves:
 
 ```bash
 # Helm
-helm uninstall k8s-blkio-limiter -n k8s-blkio-limiter-system
+helm uninstall iolimiter-operator -n iolimiter-operator-system
 
 # kustomize
 kubectl delete -k config/default
@@ -349,7 +349,7 @@ pods (different tenants) with PVs on the same shared `ext4`/`xfs`
 filesystem can defeat each other's throttle via the kernel's own fsync
 serialization (K7, "fsync inversion" — an unthrottled writer's `fsync` on
 the shared filesystem journal can stall a throttled tenant's I/O
-regardless of their own `io.max` limits). `k8s-blkio-limiter` does not, and
+regardless of their own `io.max` limits). `iolimiter-operator` does not, and
 cannot, detect this from userspace; it's a PV/StorageClass provisioning
 decision (one block device or filesystem per PV) outside this project's
 scope.
@@ -409,7 +409,7 @@ or freeze any pod scheduled to that node), and read/forge any
 filesystem, `system.slice`, or any other node's cgroups. See `SPEC.md` §7
 for the full RBAC table.
 
-**The operator namespace (`k8s-blkio-limiter-system` by default) is
+**The operator namespace (`iolimiter-operator-system` by default) is
 cluster-admin-equivalent** (D39): whoever can create a Pod there can mount
 the controller's and agent's ServiceAccount tokens (`automountServiceAccountToken`
 isn't disabled on either) and, for the agent specifically, request the
@@ -484,11 +484,11 @@ Raising verbosity on a running deployment:
 
 ```bash
 # controller
-kubectl -n k8s-blkio-limiter-system patch deployment k8s-blkio-limiter-controller-manager \
+kubectl -n iolimiter-operator-system patch deployment iolimiter-operator-controller-manager \
   --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--zap-log-level=debug"}]'
 
 # agent (same JSON patch shape)
-kubectl -n k8s-blkio-limiter-system patch daemonset k8s-blkio-limiter-agent \
+kubectl -n iolimiter-operator-system patch daemonset iolimiter-operator-agent \
   --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--zap-log-level=debug"}]'
 ```
 
@@ -498,8 +498,8 @@ Or via Helm: `--set 'manager.args={--leader-elect,--zap-log-level=debug}'` /
 Following one object end to end:
 
 ```bash
-kubectl -n k8s-blkio-limiter-system logs deploy/k8s-blkio-limiter-controller-manager | grep '<ns>/<iolimiter-name>'
-kubectl -n k8s-blkio-limiter-system logs ds/k8s-blkio-limiter-agent --prefix | grep '<ns>/<pod-name>'
+kubectl -n iolimiter-operator-system logs deploy/iolimiter-operator-controller-manager | grep '<ns>/<iolimiter-name>'
+kubectl -n iolimiter-operator-system logs ds/iolimiter-operator-agent --prefix | grep '<ns>/<pod-name>'
 ```
 
 Use `--prefix` (or `-l control-plane=agent --prefix`) on the DaemonSet:

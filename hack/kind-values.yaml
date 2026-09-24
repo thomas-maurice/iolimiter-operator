@@ -6,8 +6,8 @@
 # the pinned kind cluster (the kustomize path, `make deploy`/`deploy-kind`,
 # gets the equivalent override from hack/kind-overlay instead):
 #
-#   helm upgrade --install k8s-blkio-limiter dist/chart \
-#     --namespace k8s-blkio-limiter-system --create-namespace \
+#   helm upgrade --install iolimiter-operator dist/chart \
+#     --namespace iolimiter-operator-system --create-namespace \
 #     -f hack/kind-values.yaml
 #
 # (`make helm-deploy` already threads HELM_EXTRA_ARGS through, so

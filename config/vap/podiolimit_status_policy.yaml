@@ -29,7 +29,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: podiolimit-status-write-restricted
   labels:
-    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/name: iolimiter-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
   failurePolicy: Fail
@@ -42,9 +42,9 @@ spec:
   validations:
     - expression: >-
         request.userInfo.username == 'system:serviceaccount:' +
-        'k8s-blkio-limiter-system' + ':' + 'k8s-blkio-limiter-agent'
+        'iolimiter-operator-system' + ':' + 'iolimiter-operator-agent'
       message: >-
-        podiolimits/status may only be updated by the k8s-blkio-limiter
+        podiolimits/status may only be updated by the iolimiter-operator
         agent service account (SPEC.md D27).
     - expression: >-
         has(request.userInfo.extra) &&

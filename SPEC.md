@@ -1,17 +1,17 @@
-# k8s-blkio-limiter — SPEC
+# iolimiter-operator — SPEC
 
 Living spec + progress tracker. **Update the checkboxes as chunks land.** If a
 session dies, resume from the first unchecked item of the first unfinished chunk.
 Generated 2026-09-23 by the architect. Conventions mirror
 `../pvc-downsize-operator` (same author, same API group).
 
-- Module: `github.com/thomas-maurice/k8s-blkio-limiter` (unchanged)
+- Module: `github.com/thomas-maurice/iolimiter-operator` (renamed from `k8s-blkio-limiter` alongside the GitHub repo)
 - API: `storage.maurice.fr/v1alpha1`
   - `IOLimiter` — namespaced, user-facing, short name `iol`
   - `PodIOLimit` — namespaced, **internal** (controller-written spec, agent-written status), short name `pil`
-- Image: `ghcr.io/thomas-maurice/k8s-blkio-limiter` — one image, two modes: `/manager` (controller) and `/manager agent` (node agent)
+- Image: `ghcr.io/thomas-maurice/iolimiter-operator` — one image, two modes: `/manager` (controller) and `/manager agent` (node agent)
 - Scaffold: kubebuilder v4 (`go/v4`) + `helm/v2-alpha` plugin (chart in `dist/chart`)
-- Install namespace: `k8s-blkio-limiter-system` (PSA `privileged`, see D14)
+- Install namespace: `iolimiter-operator-system` (PSA `privileged`, see D14)
 - Minimum Kubernetes: **1.32** (CRD selectable fields GA; see OQ3)
 
 ## 1. Goal
@@ -349,7 +349,7 @@ D30):
    came to exist.
 3. Pod missing, not scheduled (`nodeName == ""`), or terminal → desired = none. If a `PodIOLimit` exists for this UID: delete it and remove the finalizer directly (terminal/gone ⇒ no live cgroup).
 4. `volumes, _ := desired.Compute(...)`. Empty → delete the `PodIOLimit` (finalizer kept: the agent must reset).
-5. Otherwise create it (D18 name, ownerRef, finalizer, `app.kubernetes.io/managed-by: k8s-blkio-limiter`), or `MergeFrom`-patch the spec if it differs. If the existing one is being deleted (held by D9) → requeue 2s.
+5. Otherwise create it (D18 name, ownerRef, finalizer, `app.kubernetes.io/managed-by: iolimiter-operator`), or `MergeFrom`-patch the spec if it differs. If the existing one is being deleted (held by D9) → requeue 2s.
 6. For a `PodIOLimit` being deleted whose `status.devices` is empty → remove the finalizer (optimistic lock, conflict → requeue).
 
 **IOLimiterReconciler** (key = IOLimiter; watches IOLimiter, Pod → limiters in
@@ -685,7 +685,7 @@ agent's own skip-reason logic.
   container-restart-triggered Pod reconcile. This is correct controller
   behaviour, not an agent bug. Fix, confined to the test harness
   (`test/e2e/harness_test.go`, `scaleControllerManagerToZero`): `TestMain`
-  scales `k8s-blkio-limiter-controller-manager` to 0 replicas before
+  scales `iolimiter-operator-controller-manager` to 0 replicas before
   running any test and leaves it there for the suite's lifetime;
   `make deploy-kind` (`replicas: 1` in `config/manager/manager.yaml`)
   restores it on the next deploy. C5 is the chunk that needs the
@@ -801,7 +801,7 @@ agent's own skip-reason logic.
 - [x] README rewrite: what/why, install (kustomize and helm), API reference table, how limits map to `io.max`, K7 caveats (shared device, rootfs), dirty-page/OOM note linking `.ideas/dirty-pages-and-oom.md`, annotation → IOLimiter migration (D3), supported volume types (D19), trust model (§7).
 - [x] `config/samples/` real-world IOLimiters. CI: helm-lint + chart push on tags as in the reference.
 
-**Acceptance.** Rendering the chart with `--set manager.image.tag=X` puts `X` on **both** the Deployment and the DaemonSet (verified: `helm template ... --set manager.image.tag=X` greps `image: "ghcr.io/thomas-maurice/k8s-blkio-limiter:X"` on both the Deployment and the DaemonSet). **Logging:** the README and skill have a "Logging & debugging" section (key table, levels, how to raise `--zap-log-level` on the Deployment and the DaemonSet, and the grep recipes). The chart exposes agent args, so the level is settable via values. Chart smoke e2e green (`TestIOLimiterEndToEnd`, `test/e2e/operator`, against the helm-installed release). **Out of scope.** New features.
+**Acceptance.** Rendering the chart with `--set manager.image.tag=X` puts `X` on **both** the Deployment and the DaemonSet (verified: `helm template ... --set manager.image.tag=X` greps `image: "ghcr.io/thomas-maurice/iolimiter-operator:X"` on both the Deployment and the DaemonSet). **Logging:** the README and skill have a "Logging & debugging" section (key table, levels, how to raise `--zap-log-level` on the Deployment and the DaemonSet, and the grep recipes). The chart exposes agent args, so the level is settable via values. Chart smoke e2e green (`TestIOLimiterEndToEnd`, `test/e2e/operator`, against the helm-installed release). **Out of scope.** New features.
 
 **Deviation/implementation notes (found in C6, not guessed).**
 - **§8's "known gap" is confirmed, and worse than documented.** The
@@ -811,7 +811,7 @@ agent's own skip-reason logic.
   (`resources`, `tolerations`, `nodeSelector`, `securityContext`,
   `priorityClassName`, args) is a hardcoded literal, not a `.Values.*`
   reference. Worse, its `serviceAccountName` references
-  `{{ include "k8s-blkio-limiter.resourceName" (dict "suffix" "agent" ...) }}`
+  `{{ include "iolimiter-operator.resourceName" (dict "suffix" "agent" ...) }}`
   but the plugin never emits a ServiceAccount with that name — only the
   manager's own SA is templated (`templates/rbac/controller-manager.yaml`,
   gated on `.Values.serviceAccount.enabled`) — so the unmodified generated
@@ -903,7 +903,7 @@ agent's own skip-reason logic.
 - **The C6 coordinator review's two findings were folded in during this chunk** (both were assigned to whoever next touched `hack/helm-postprocess.sh`/`dist/chart`, which C7 does for D28's cgroup mount and D27's VAP templates anyway): (1) `hack/checkmanifestparity` (`make check-manifest-parity`, wired into `make verify` and CI's `unit` job) renders both the kustomize and Helm agent DaemonSets and fails loudly on any security-relevant field drift (securityContext, hostPath volumes/mounts) -- proven to actually catch drift, not just pass trivially, by deliberately reintroducing a stale `mountPath` and confirming it fails before fixing it back. (2) `agent-role.yaml`/`agent-rolebinding.yaml`/`agent-metrics-auth-rolebinding.yaml` (plugin-generated from `config/agent/rbac`'s controller-gen markers, not previously touched by the postprocess script) are now wrapped in the same `agent.enabled` guard as the DaemonSet/ServiceAccount, so `agent.enabled=false` no longer leaves them bound to a ServiceAccount the chart never creates.
 - **The kubebuilder helm plugin's own "extras" auto-templatization picked up config/vap's `ValidatingAdmissionPolicy`/`Binding` objects too** (the same generic mechanism that emits `templates/extras/agent.yaml` for the DaemonSet), producing a *second*, non-`admissionPolicy.enabled`-gated copy with an invalid `namespace: {{ .Release.Namespace }}` field on a cluster-scoped resource (would be rejected by the apiserver). `hack/helm-postprocess.sh` deletes the plugin's own `templates/extras/podiolimit-*.yaml` copies every run (idempotent) in favour of the hand-templated, gated versions in `templates/rbac/podiolimit-admission-policy.yaml`.
 - **kustomize's built-in `nameReference` transformer has no knowledge of `ValidatingAdmissionPolicyBinding.spec.policyName`**: `config/vap/kustomizeconfig.yaml` teaches it, mirroring `config/crd/kustomizeconfig.yaml`'s own pattern for a field kustomize doesn't recognize out of the box. Verified: `kustomize build config/default`'s binding correctly gets the namePrefixed policy name without it needing to be hand-kept in sync.
-- **The VAP's own SA-username CEL strings can't be kustomize vars** (kustomize doesn't rewrite arbitrary string fields, only known reference fields): `config/vap`'s two policies hardcode `system:serviceaccount:k8s-blkio-limiter-system:k8s-blkio-limiter-{controller-manager,agent}` literally, with a comment explaining the dependency on `config/default`'s namespace + `namePrefix` + `config/rbac`'s SA names. `test/e2e/hardening` builds the same usernames from the *live* ServiceAccount objects (not by re-hardcoding the string a third time), so a rename surfaces as a clear test failure instead of the VAP silently protecting an identity nobody uses.
+- **The VAP's own SA-username CEL strings can't be kustomize vars** (kustomize doesn't rewrite arbitrary string fields, only known reference fields): `config/vap`'s two policies hardcode `system:serviceaccount:iolimiter-operator-system:iolimiter-operator-{controller-manager,agent}` literally, with a comment explaining the dependency on `config/default`'s namespace + `namePrefix` + `config/rbac`'s SA names. `test/e2e/hardening` builds the same usernames from the *live* ServiceAccount objects (not by re-hardcoding the string a third time), so a rename surfaces as a clear test failure instead of the VAP silently protecting an identity nobody uses.
 - **Shipping the VAPs active by default (not opt-in) broke `test/e2e/agent` and `test/e2e/operator`'s existing `TestDeleteWhileAgentDown`, until fixed** -- both "play the controller" by hand (C3) via the shared `test/e2e/harness` package's `CreatePodIOLimit`/`DeletePodIOLimit` and a few direct `K8sClient.Create/Delete/Patch` calls on `PodIOLimit`, all issued as the ambient kind-admin identity, which the write policy now correctly denies. Fixed by adding `harness.ControllerClient` (the same REST config, but with `Impersonate: rest.ImpersonationConfig{UserName: "system:serviceaccount:...:...-controller-manager"}`) and routing every main-resource mutation (`harness.go`'s `CreatePodIOLimit`/`DeletePodIOLimit`, and the three call sites in `test/e2e/agent` that bypassed those helpers: `release_test.go`'s create/delete, `partial_update_test.go`'s spec patch) through it. This is not a workaround: it's the suite becoming more correct, since "plays the controller by hand" should mean authenticating as the controller too, not just replicating its writes as an arbitrary admin identity. Reads (`Get`/`List`/watches) are unaffected -- the VAP only restricts writes -- and stay on the plain `K8sClient`.
 - **The narrowed cgroup mount preserves the host path's relative structure under `--cgroup-root`** (`/host/cgroup/kubelet.slice/kubelet-kubepods.slice`, not flattened to `/host/cgroup`), specifically so `internal/cgroup.DiscoverKubepods`'s existing candidate search needs **no code change**: only `internal/agent/agent.go`'s two `cgroup.controllers` preflight checks (startup, and D24's periodic self-check) needed to move from `--cgroup-root` to the *discovered* `layout.Base`, since cfg.cgroupRoot itself is now an empty mountpoint-stub directory rather than a real cgroup2 mount. `selfCheckPasses`/`runSelfCheckLoop` gained a `kubepodsRoot string` parameter for this; no test in `internal/agent/agent_test.go` covered these functions directly (grepped to confirm), so the signature change needed no test updates.
 

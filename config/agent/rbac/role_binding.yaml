@@ -2,7 +2,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
-    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/name: iolimiter-operator
     app.kubernetes.io/managed-by: kustomize
   name: agent-rolebinding
 roleRef:

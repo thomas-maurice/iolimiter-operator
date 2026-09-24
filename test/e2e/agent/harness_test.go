@@ -16,7 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package agent exercises the k8s-blkio-limiter agent (SPEC.md §6.1)
+// Package agent exercises the iolimiter-operator agent (SPEC.md §6.1)
 // directly, hand-playing the controller (§11 C3): every test builds a
 // PodIOLimit itself (finalizer, pod UID, QoS, kubeletDirName = PV name)
 // and removes the finalizer itself once the agent has released.
@@ -38,7 +38,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/thomas-maurice/k8s-blkio-limiter/test/e2e/harness"
+	"github.com/thomas-maurice/iolimiter-operator/test/e2e/harness"
 )
 
 func TestMain(m *testing.M) {

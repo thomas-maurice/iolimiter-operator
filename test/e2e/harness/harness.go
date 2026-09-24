@@ -60,18 +60,18 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/iomax"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
+	"github.com/thomas-maurice/iolimiter-operator/internal/iomax"
 )
 
 // Fixed identifiers of the deployed manager (config/agent, config/manager,
 // config/default) and of the kind topology (hack/kind-config.yaml,
 // hack/setup-loopdev.sh).
 const (
-	AgentNamespace          = "k8s-blkio-limiter-system"
-	AgentDaemonSet          = "k8s-blkio-limiter-agent"
+	AgentNamespace          = "iolimiter-operator-system"
+	AgentDaemonSet          = "iolimiter-operator-agent"
 	AgentLabelSelector      = "control-plane=agent"
-	ControllerDeployment    = "k8s-blkio-limiter-controller-manager"
+	ControllerDeployment    = "iolimiter-operator-controller-manager"
 	ControllerLabelSelector = "control-plane=controller-manager"
 	DefaultKindCluster      = "blkio-limiter"
 	StorageClassName        = "blkio-local"

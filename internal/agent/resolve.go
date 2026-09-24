@@ -23,10 +23,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/blockdev"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/iomax"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/mountinfo"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
+	"github.com/thomas-maurice/iolimiter-operator/internal/blockdev"
+	"github.com/thomas-maurice/iolimiter-operator/internal/iomax"
+	"github.com/thomas-maurice/iolimiter-operator/internal/mountinfo"
 )
 
 // resolution is the per-volume result of SPEC.md §6.1 step 4, assembled

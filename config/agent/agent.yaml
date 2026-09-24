@@ -5,13 +5,13 @@ metadata:
   namespace: system
   labels:
     control-plane: agent
-    app.kubernetes.io/name: k8s-blkio-limiter
+    app.kubernetes.io/name: iolimiter-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
   selector:
     matchLabels:
       control-plane: agent
-      app.kubernetes.io/name: k8s-blkio-limiter
+      app.kubernetes.io/name: iolimiter-operator
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
@@ -22,7 +22,7 @@ spec:
         kubectl.kubernetes.io/default-container: agent
       labels:
         control-plane: agent
-        app.kubernetes.io/name: k8s-blkio-limiter
+        app.kubernetes.io/name: iolimiter-operator
     spec:
       # D14: not privileged. No hostPID, no hostNetwork.
       securityContext:

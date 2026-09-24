@@ -41,9 +41,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	storagev1alpha1 "github.com/thomas-maurice/k8s-blkio-limiter/api/v1alpha1"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/agent"
-	"github.com/thomas-maurice/k8s-blkio-limiter/internal/controller"
+	storagev1alpha1 "github.com/thomas-maurice/iolimiter-operator/api/v1alpha1"
+	"github.com/thomas-maurice/iolimiter-operator/internal/agent"
+	"github.com/thomas-maurice/iolimiter-operator/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -240,7 +240,7 @@ func main() {
 	if err := (&controller.IOLimiterReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("k8s-blkio-limiter-controller"),
+		Recorder: mgr.GetEventRecorder("iolimiter-operator-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "iolimiter")
 		os.Exit(1)
@@ -248,7 +248,7 @@ func main() {
 	if err := (&controller.PodReconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
-		Recorder:  mgr.GetEventRecorder("k8s-blkio-limiter-controller"),
+		Recorder:  mgr.GetEventRecorder("iolimiter-operator-controller"),
 		APIReader: mgr.GetAPIReader(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "pod")

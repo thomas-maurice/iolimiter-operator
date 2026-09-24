@@ -3,7 +3,8 @@ bin/
 # make build-installer output; dist/chart (the Helm chart) is checked in so
 # CI can `helm lint`/`helm package` it without needing kubebuilder installed.
 /dist/install.yaml
-.claude/
+.claude/*
+!.claude/skills/
 .ideas/
 CLAUDE.md
 .vscode/

@@ -507,7 +507,7 @@ Use `--prefix` (or `-l control-plane=agent --prefix`) on the DaemonSet:
 
 ## Local development
 
-See `SPEC.md` (living design doc) and `AGENTS.md`
+See `SPEC.md` (living design doc) and `.claude/skills/working-here/SKILL.md`
 (day-to-day workflow: kind cluster, `make test`/`make lint`/`make e2e`, the
 API-change checklist).
 

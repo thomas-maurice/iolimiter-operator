@@ -3,7 +3,7 @@ module github.com/thomas-maurice/iolimiter-operator
 go 1.26.0
 
 require (
-	github.com/go-logr/logr v1.4.3
+	github.com/go-logr/logr v1.4.4
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.24.0
 	github.com/prometheus/client_model v0.6.2
